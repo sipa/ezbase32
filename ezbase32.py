@@ -54,14 +54,14 @@ def fromzbase32(s):
         ret.append(p)
     return ret
 
-def headerchecksum(header):
-    crc = rsupdate(0, len(header) + 1)
-    for c in header:
+def auxchecksum(aux):
+    crc = rsupdate(0, len(aux) + 1)
+    for c in aux:
         crc = rsupdate(crc, c)
     return crc
 
-def datachecksum(headercrc, data5):
-    crc = rsupdate(headercrc, len(data5) + 1)
+def datachecksum(auxcrc, data5):
+    crc = rsupdate(auxcrc, len(data5) + 1)
     pos = 0
     if (len(data5) & 1):
         crc = rsupdate(crc, data5[0])
@@ -77,22 +77,22 @@ def checksumto5(crc):
 def checksumfrom5(data):
     return data[0] << 25 | data[1] << 20 | data[2] << 15 | data[3] << 10 | data[4] << 5 | data[5]
 
-def encode(headerstr, databytes):
-    if len(headerstr) > 100 or len(databytes) > 512:
+def encode(auxstr, databytes):
+    if len(auxstr) > 100 or len(databytes) > 512:
         raise None
-    crc = headerchecksum(headerstr.encode())
+    crc = auxchecksum(auxstr.encode())
     u5 = convert8to5(databytes)
     if u5 is None:
         return None
     crc = datachecksum(crc, u5)
-    return headerstr + tozbase32(u5 + checksumto5(crc))
+    return tozbase32(u5 + checksumto5(crc))
 
-def decode(ezbase32, headerlen):
-    datalen = (len(ezbase32) - 6 - headerlen) * 5 // 8
-    if headerlen < 0 or headerlen > 100 or datalen < 0 or datalen > 512 or (datalen * 8 + 4) // 5 + 6 + headerlen != len(ezbase32):
+def decode(auxstr, ezbase32):
+    datalen = (len(ezbase32) - 6) * 5 // 8
+    if len(auxstr) > 100 or datalen < 0 or datalen > 512 or (datalen * 8 + 34) // 5 != len(ezbase32):
         return None
-    crc = headerchecksum(ezbase32[0:headerlen].encode())
-    u5 = fromzbase32(ezbase32[headerlen:])
+    crc = auxchecksum(auxstr.encode())
+    u5 = fromzbase32(ezbase32)
     if u5 is None:
         return None
     data = convert5to8(u5[:-6])
@@ -100,14 +100,12 @@ def decode(ezbase32, headerlen):
     crc2 = checksumfrom5(u5[-6:])
     if crc != crc2 or data is None:
         return None
-    return ezbase32[0:headerlen], bytes(data)
+    return bytes(data)
 
 if __name__ == '__main__':
     data = "hello"
     for x in range(100):
-        print(tozbase32(convert8to5((data + str(x)).encode())))
         e = encode("btc:", (data + str(x)).encode())
         print(e)
-        h,d = decode(e, 4)
-        print(h,d.decode())
-
+        d = decode("btc:", e)
+        print(d.decode())
