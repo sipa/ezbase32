@@ -155,6 +155,7 @@ void test(int errors, int swaps, uint64_t loop) {
         crc3 = crc3n;
         crc40 = crc40n;
         crc41 = crc41n;
+        crc42 = crc42n;
     }
     fprintf(stderr, "Out of %llu (HD%i mistakes, %i swaps): fails={CRC3:%llu, CRC4:[%llu,%llu,%llu,%llu]}\n", (unsigned long long)loop, errors, swaps, (unsigned long long)fail3, (unsigned long long)fail40, (unsigned long long)fail41, (unsigned long long)fail42, (unsigned long long)fail43);
 }
