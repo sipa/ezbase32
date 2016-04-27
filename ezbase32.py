@@ -65,8 +65,16 @@ def decode(auxstr, ezbase32):
     return bytearray(databytes)
 
 if __name__ == '__main__':
+    ff = [100,200,300,400,500,600,700,800,900,1000]
+    for x in range(10):
+        crc = auxchecksum(ff)
+        ff = ff + convertbits([crc], 30, 10)
+    print("ff=%r\n" % ff)
     data = "hello"
-    print("%r\n" % RSTABLE)
+    s = [0,20,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55]
+    print("%r\n" % encode("btc:", s))
+    s = [0,32,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55,55]
+    print("%r\n" % encode("btc:", s))
     for x in range(100000):
         s = bytearray("hello" + str(x), "utf8")
         e = encode("btc:", s)
