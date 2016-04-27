@@ -102,7 +102,7 @@ static inline uint32_t insecure_rand(void)
     return (insecure_rand_Rw << 16) + (insecure_rand_Rw >> 16) + insecure_rand_Rz + rdr;
 }
 
-#define LEN 40
+#define LEN 93
 
 void test(int errors, int swaps, uint64_t loop) {
     uint8_t data[LEN];
@@ -137,7 +137,7 @@ void test(int errors, int swaps, uint64_t loop) {
             for (int j = 0; j < swaps; j++) {
                 int s;
                 do {
-                    s = insecure_rand() % 39;
+                    s = insecure_rand() % (LEN - 1);
                 } while (data[s] == data[s + 1]);
                 uint8_t t = data[s];
                 data[s] = data[s + 1];
