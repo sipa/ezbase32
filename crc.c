@@ -5,14 +5,17 @@
 
 #include <immintrin.h>
 
-/* BCH code over GF(2^5), max length 93 (1023/11), HD 5 */
+/* BCH code over GF(2^5)
+ * gen 0: HD5 degree6 length93
+ * gen 1: HD4 degree5 length1023 * degree1
+ * gen 2: HD4 degree6 length1023
+ */
 static uint32_t compute_checksum4(const uint8_t* data, int len, int gen) {
     uint32_t l = 1;
     static const uint32_t tbl[4][32] = {
         {0, 792092555, 373043126, 956985405, 745200617, 56394850, 978777183, 358656980, 315074418, 1039268089, 83593412, 734910287, 1051557019, 295379728, 680612653, 128388262, 630147681, 179901930, 867395031, 478493276, 166039944, 651415043, 534363710, 821027253, 927526163, 410956440, 561300133, 239246638, 455227130, 873752945, 220076364, 573064903},
-        {0, 318034653, 636040511, 924706786, 59828827, 291780742, 645521252, 881659321, 91309107, 394630894, 546861324, 845980625, 115453544, 336952501, 587766615, 838617482, 145890371, 440848030, 760949116, 1068497825, 186840600, 433464517, 785105703, 1010766330, 230905968, 523733677, 673869135, 987676562, 240366123, 480731382, 733644564, 961435081},
-        {0, 559158191, 924327998, 374092689, 463323207, 986305512, 746971257, 231863254, 882306190, 365100833, 59690160, 584769311, 789261513, 241123174, 403901687, 960962392, 523056412, 1048127155, 674567458, 157353613, 78706011, 635758324, 866702693, 318555850, 733731218, 183487037, 480508332, 1039657475, 807803349, 292686458, 121518571, 644491844},
-        {0, 77639975, 155279950, 232903529, 282219580, 343074075, 429078130, 489916245, 564411485, 621055354, 686120467, 742780724, 829843553, 903272774, 943131183, 1016576776, 186153119, 263768504, 39394001, 117025782, 466234531, 527080836, 311119597, 371982282, 716981442, 773649893, 603793036, 660445099, 980291838, 1053729241, 858747568, 932168599},
+        {0, 1020869833, 61667730, 1064682843, 77039385, 944683984, 121339531, 1004683842, 154077615, 905327974, 176418877, 911920372, 230198966, 828486271, 236222244, 852315117, 294687582, 759803799, 305949388, 786781701, 352785479, 702425230, 380366293, 712167708, 415210225, 610707000, 454255459, 667574186, 472391144, 552673569, 528802938, 593352883},
+        {0, 935395413, 439484561, 770900164, 878969113, 61145420, 777388424, 429326813, 516424201, 688456284, 83493528, 859505357, 715916048, 493683525, 815661953, 123667412, 1032684402, 172786471, 666862563, 276726710, 166298219, 1042842174, 333153018, 605717167, 591757691, 344228142, 964133354, 246841791, 388071522, 551583799, 219382003, 986874022},
     };
 
     while (len > 6) {
@@ -107,13 +110,10 @@ void test(int errors, int swaps, uint64_t loop) {
     for (int j = 0; j < LEN; j++) {
         data[j] = insecure_rand() % 32;
     }
-/*    uint32_t crc1 = compute_checksum1(data, LEN);
-    uint32_t crc2 = compute_checksum2(data, LEN);*/
     uint32_t crc3 = compute_checksum3(data, LEN);
     uint32_t crc40 = compute_checksum4(data, LEN, 0);
     uint32_t crc41 = compute_checksum4(data, LEN, 1);
-    uint32_t crc42 = compute_checksum4(data, LEN, 2);
-    uint32_t crc43 = compute_checksum4(data, LEN, 3);
+    uint32_t crc42 = compute_checksum4(data, LEN, 1);
     uint64_t /*fail1 = 0, fail2 = 0,*/ fail3 = 0, fail40 = 0, fail41 = 0, fail42 = 0, fail43 = 0;
     for (uint64_t i = 0; i < loop; i++) {
         int errpos[8];
@@ -144,35 +144,26 @@ void test(int errors, int swaps, uint64_t loop) {
                 data[s + 1] = t;
             }
         } while (memcmp(olddata, data, LEN) == 0);
-/*        uint32_t crc1n = compute_checksum1(data, LEN);
-        uint32_t crc2n = compute_checksum2(data, LEN);*/
         uint32_t crc3n = compute_checksum3(data, LEN);
         uint32_t crc40n = compute_checksum4(data, LEN, 0);
         uint32_t crc41n = compute_checksum4(data, LEN, 1);
         uint32_t crc42n = compute_checksum4(data, LEN, 2);
-        uint32_t crc43n = compute_checksum4(data, LEN, 3);
-/*        fail1 += (crc1n == crc1);
-        fail2 += (crc2n == crc2);*/
         fail3 += (crc3n == crc3);
         fail40 += (crc40n == crc40);
         fail41 += (crc41n == crc41);
         fail42 += (crc42n == crc42);
-        fail43 += (crc43n == crc43);
-/*        crc1 = crc1n;
-        crc2 = crc2n;*/
         crc3 = crc3n;
         crc40 = crc40n;
         crc41 = crc41n;
-        crc42 = crc42n;
-        crc43 = crc43n;
     }
     fprintf(stderr, "Out of %llu (HD%i mistakes, %i swaps): fails={CRC3:%llu, CRC4:[%llu,%llu,%llu,%llu]}\n", (unsigned long long)loop, errors, swaps, (unsigned long long)fail3, (unsigned long long)fail40, (unsigned long long)fail41, (unsigned long long)fail42, (unsigned long long)fail43);
 }
 
 int main(int argc, char** argv) {
     if (argc > 1) { insecure_rand_Rz *= strtol(argv[1], NULL, 10); }
-    uint64_t n = ((uint64_t)1) << 27;
+    uint64_t n = ((uint64_t)1) << 25;
     for (int i = 0; i < 40; i++) {
+       test(3, 0, n);
        test(4, 0, n);
        test(5, 0, n);
        test(6, 0, n);
