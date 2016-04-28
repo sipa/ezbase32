@@ -221,7 +221,7 @@ void thread_dump() {
         for (unsigned int i = 0; i < CHECKSUMS; i++) {
             printf("\"%s\"", checksums[i].name);
             for (int e = 0; e < MAXERR; e++) {
-                printf(",%g", ((double)allresults[e].fails[i]) / allresults[e].count);
+                printf(",%g", ((double)allresults[e].fails[i]) / allresults[e].count * 1000000000.0);
             }
             printf("\n");
         }
