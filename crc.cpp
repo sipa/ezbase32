@@ -131,7 +131,7 @@ inline uint32_t rng()
     return rdr;
 }
 
-#define LEN 64
+#define LEN 57
 
 #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 
