@@ -116,8 +116,8 @@ struct Checksum {
     int hd;
 } static const checksums[] = {
     {"CRC-30", &compute_checksum0, 0, 2},
-    {"CRC-6-sliced", &compute_checksum1, 0, 3},
-    {"2xCRC-6-sliced", &compute_checksum2, 0, 3},
+//    {"CRC-6-sliced", &compute_checksum1, 0, 3},
+//    {"2xCRC-6-sliced", &compute_checksum2, 0, 3},
     {"RS-10bit", &compute_checksum3, 0, 4},
     {"BCH(m4d6l93)", &compute_checksum4, 0, 5},
     {"BCH(m3d5l1023+m1)", &compute_checksum4, 1, 4},
@@ -131,7 +131,7 @@ inline uint32_t rng()
     return rdr;
 }
 
-#define LEN 57
+#define LEN 93
 
 #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 
