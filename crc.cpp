@@ -232,6 +232,7 @@ void thread_dump() {
 }
 
 int main(int argc, char** argv) {
+    setbuf(stdout, NULL);
     int threads = argc > 1 ? strtol(argv[1], NULL, 10) : 1;
     for (int t = 0; t < threads; t++) {
         std::thread th(thread_crc);
