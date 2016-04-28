@@ -201,7 +201,7 @@ void thread_crc() {
     do {
         Results r;
         int e = 1 + (rng() % MAXERR);
-        test(e, 1 << 16, &r);
+        test(e, 1 << 20, &r);
         {
             std::unique_lock<std::mutex> lock(cs_allresults);
             allresults[e - 1] += r;
