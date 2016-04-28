@@ -17,7 +17,7 @@ namespace {
  * gen 2: HD4 degree6 length1023
  */
 uint32_t compute_checksum4(const uint8_t* data, int len, int gen) {
-    uint32_t l = 1;
+    uint32_t l = 0;
     static const uint32_t tbl[4][32] = {
         {0, 792092555, 373043126, 956985405, 745200617, 56394850, 978777183, 358656980, 315074418, 1039268089, 83593412, 734910287, 1051557019, 295379728, 680612653, 128388262, 630147681, 179901930, 867395031, 478493276, 166039944, 651415043, 534363710, 821027253, 927526163, 410956440, 561300133, 239246638, 455227130, 873752945, 220076364, 573064903},
         {0, 1020869833, 61667730, 1064682843, 77039385, 944683984, 121339531, 1004683842, 154077615, 905327974, 176418877, 911920372, 230198966, 828486271, 236222244, 852315117, 294687582, 759803799, 305949388, 786781701, 352785479, 702425230, 380366293, 712167708, 415210225, 610707000, 454255459, 667574186, 472391144, 552673569, 528802938, 593352883},
@@ -52,7 +52,7 @@ inline uint32_t rstable(uint16_t x) {
 
 /* RS code over GF(2^10), max length 2046 (1023*2), HD 4 */
 uint32_t compute_checksum3(const uint8_t* data, int len, int gen) {
-    uint32_t l = rstable(1);
+    uint32_t l = 0;
 
     while (len > 6) {
         uint16_t c = *(data++);
@@ -81,7 +81,7 @@ uint32_t compute_checksum3(const uint8_t* data, int len, int gen) {
 
 /* 2 different CRC-6's over the individual bits of 5-bit characters, max length 57, HD 3 */
 uint32_t compute_checksum2(const uint8_t* data, int len, int gen) {
-    uint32_t ret = 3;
+    uint32_t ret = 0;
     while (len--) {
         ret = ((ret & 0x1FFFFFF) << 5) ^ (((ret >> 25) & 0x15) * 0x2000421) ^ (((ret >> 25) & 0xA) * 0x2100021) ^ *(data++);
     }
@@ -90,7 +90,7 @@ uint32_t compute_checksum2(const uint8_t* data, int len, int gen) {
 
 /* A CRC-6 over the individual bits of 5-bit characters. max length 57, HD 3 */
 uint32_t compute_checksum1(const uint8_t* data, int len, int gen) {
-    uint32_t ret = 3;
+    uint32_t ret = 0;
     while (len--) {
         ret = ((ret & 0x1FFFFFF) << 5) ^ ((ret >> 25) * 0x2000421) ^ *(data++);
     }
@@ -99,7 +99,7 @@ uint32_t compute_checksum1(const uint8_t* data, int len, int gen) {
 
 /* A CRC-30 over all the bits. max length infinity, HD 2 */
 uint32_t compute_checksum0(const uint8_t* data, int len, int gen) {
-    uint32_t ret = 1;
+    uint32_t ret = 0;
     while (len--) {
         uint8_t c = *(data++);
         for (int i = 0; i < 5; i++) {
@@ -138,8 +138,23 @@ inline uint32_t rng()
 #define MAXERR 8
 
 struct CRCOutputs {
-    uint32_t val[CHECKSUMS];
+    uint32_t val[LEN][32][CHECKSUMS];
+
+    CRCOutputs() {
+        unsigned char data[LEN] = {0};
+        for (int pos = 0; pos < LEN; pos++) {
+            for (int v = 0; v < 32; v++) {
+                data[pos] = v;
+                for (unsigned int c = 0; c < CHECKSUMS; c++) {
+                    val[pos][v][c] = checksums[c].fun(data, LEN, checksums[c].gen);
+                }
+            }
+            data[pos] = 0;
+        }
+    }
 };
+
+const CRCOutputs outputs;
 
 struct Results {
     uint64_t fails[CHECKSUMS];
@@ -157,16 +172,9 @@ struct Results {
 };
 
 void test(int errors, uint64_t loop, Results* ret) {
-    uint8_t data[LEN];
-    for (int j = 0; j < LEN; j++) {
-        data[j] = rng() % 32;
-    }
-    CRCOutputs crc;
     Results res = {};
-    for (unsigned int c = 0; c < CHECKSUMS; c++) {
-        crc.val[c] = checksums[c].fun(data, LEN, checksums[c].gen);
-    }
     for (uint64_t i = 0; i < loop; i++) {
+        uint32_t crc[CHECKSUMS] = {0};
         int errpos[MAXERR];
         for (int j = 0; j < errors; j++) {
             int ok;
@@ -181,14 +189,13 @@ void test(int errors, uint64_t loop, Results* ret) {
             do {
                 mis = rng() % 32;
             } while (mis == 0);
-            data[errpos[j]] ^= mis;
+            for (unsigned int c = 0; c < CHECKSUMS; c++) {
+                crc[c] ^= outputs.val[errpos[j]][mis][c];
+            }
         }
-        CRCOutputs crcn;
         for (unsigned int c = 0; c < CHECKSUMS; c++) {
-            crcn.val[c] = checksums[c].fun(data, LEN, checksums[c].gen);
-            res.fails[c] += (crc.val[c] == crcn.val[c]);
+            res.fails[c] += (crc[c] == outputs.val[0][0][c]);
         }
-        crc = crcn;
         res.count++;
     }
     *ret = res;
