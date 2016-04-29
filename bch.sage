@@ -69,7 +69,7 @@ while not done:
         if (i >= num):
             l=lcm(mp[-num:])
             if l.degree() not in ld:
-                ld[l.degree()] = (i-num,l)
+                ld[l.degree()] = (i-num+1,l)
     for d in sorted(ld.keys()):
         print "    * C=%i DEGREE=%i" % (ld[d][0], d)
         if (d <= DEGREE):
@@ -81,5 +81,5 @@ while not done:
                 for p in range(generator.degree()):
                     n = n * Q + (F_from_int[i] * generator.list()[generator.degree()-1-p]).integer_representation()
                 table.append(n)
-            print "      * TABLE: {%s}" % (', '.join(["0x%x" % v for v in table]))
+            print "      * TABLE: {%s}, // F=(%r) E=(%r) alpha=(%r) powers=%i..%i" % (', '.join(["0x%x" % v for v in table]), F.modulus(), E.modulus(), alpha, ld[d][0], ld[d][0]+num-1)
             done = True
