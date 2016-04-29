@@ -7,6 +7,7 @@ M=2
 N=93
 DISTANCE=5
 DEGREE=6
+COUNT=256
 
 
 assert(((Q**M)-1) % N == 0)
@@ -26,8 +27,8 @@ def polyfromarray(var, arr):
         ret = ret * var + a
     return ret
 
-done = False
-while not done:
+found = 0
+while found < COUNT:
     print "* ITERATION"
     F.<f> = GF(Q, repr='int', modulus='random')
     print "  * FIELD mod", F.modulus()
@@ -82,4 +83,4 @@ while not done:
                     n = n * Q + (F_from_int[i] * generator.list()[generator.degree()-1-p]).integer_representation()
                 table.append(n)
             print "      * TABLE: {%s}, // F=(%r) E=(%r) alpha=(%r) powers=%i..%i" % (', '.join(["0x%x" % v for v in table]), F.modulus(), E.modulus(), alpha, ld[d][0], ld[d][0]+num-1)
-            done = True
+            found += 1
