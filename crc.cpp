@@ -124,14 +124,60 @@ struct Checksum {
     {"BCH(m3d6l1023)", &compute_checksum4, 2, 4},
 };
 
-inline uint32_t rng()
-{
-    uint32_t rdr = 0;
-    _rdrand32_step(&rdr);
-    return rdr;
-}
+#define ROT(x,i) (((x) << (i)) | (x) >> (32-(i)))
+#define QR(a,b,c,d) do { a += b; d ^= a; d = ROT(d,16); c += d; b ^= c; b = ROT(b,12); a += b; d ^= a; d = ROT(d,8); c += d; b ^= c; b = ROT(b,7); } while(false)
+
+class Rander {
+    uint32_t state[16];
+    int pos;
+
+    void Step() {
+        uint32_t q[16];
+        if ((pos & 0xFFFF) == 0) {
+            // Add hardware randomness
+            for (int i = 0; i < 16; i++) {
+                _rdrand32_step(&q[i]);
+            }
+            for (int i = 0; i < 16; i++) {
+                state[i] += q[i];
+            }
+        } else if ((pos & 0x1F) == 0) {
+            // One double round of ChaCha20
+            QR(state[0], state[4], state[8], state[12]);
+            QR(state[1], state[5], state[9], state[13]);
+            QR(state[2], state[6], state[10], state[14]);
+            QR(state[3], state[7], state[11], state[15]);
+            QR(state[0], state[5], state[10], state[15]);
+            QR(state[1], state[6], state[11], state[12]);
+            QR(state[2], state[7], state[8], state[13]);
+            QR(state[3], state[4], state[9], state[14]);
+        }
+    }
+
+public:
+    Rander() {
+        memset(state, 0, sizeof(state));
+        pos = 0;
+    }
+
+    uint8_t GetByte() {
+        Step();
+        uint8_t ret = state[(pos >> 2) & 7] >> (pos & 3);
+        pos++;
+        return ret;
+    }
+
+    uint8_t GetInt(uint8_t max, int bits) {
+        uint8_t r;
+        do {
+            r = GetByte() & ((1 << bits) - 1);
+        } while (r >= max);
+        return r;
+    }
+};
 
 #define LEN 93
+#define LENBITS 7
 
 #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 
@@ -171,7 +217,7 @@ struct Results {
     }
 };
 
-void test(int errors, uint64_t loop, Results* ret) {
+void test(int errors, uint64_t loop, Results* ret, Rander& rng) {
     Results res = {};
     for (uint64_t i = 0; i < loop; i++) {
         uint32_t crc[CHECKSUMS] = {0};
@@ -179,16 +225,13 @@ void test(int errors, uint64_t loop, Results* ret) {
         for (int j = 0; j < errors; j++) {
             int ok;
             do {
-                errpos[j] = rng() % LEN;
+                errpos[j] = rng.GetInt(LEN, LENBITS);
                 ok = 1;
                 for (int k = 0; k < j; k++) {
                     if (errpos[j] == errpos[k]) ok = 0;
                 }
             } while (!ok);
-            int mis;
-            do {
-                mis = rng() % 32;
-            } while (mis == 0);
+            int mis = 1 + rng.GetInt(31, 5);
             for (unsigned int c = 0; c < CHECKSUMS; c++) {
                 crc[c] ^= outputs.val[errpos[j]][mis][c];
             }
@@ -205,10 +248,11 @@ static Results allresults[MAXERR];
 std::mutex cs_allresults;
 
 void thread_crc() {
+    Rander rng;
     do {
         Results r;
         int e = 1 + (rng() % MAXERR);
-        test(e, 1 << 20, &r);
+        test(e, 1 << 20, &r, rng);
         {
             std::unique_lock<std::mutex> lock(cs_allresults);
             allresults[e - 1] += r;
