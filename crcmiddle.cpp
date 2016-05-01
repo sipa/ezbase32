@@ -41,7 +41,7 @@ uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
     f |= *(data++);
     f <<= 5;
     f |= *(data++);
-    return ((l ^ f) * 13371337) >> 20;
+    return l ^ f;
 }
 
 #define LEN 64
