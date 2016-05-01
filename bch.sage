@@ -82,5 +82,5 @@ while found < COUNT:
                 for p in range(generator.degree()):
                     n = n * Q + (F_from_int[i] * generator.list()[generator.degree()-1-p]).integer_representation()
                 table.append(n)
-            print "      * TABLE: {%s}, // F=(%r) E=(%r) alpha=(%r) powers=%i..%i" % (', '.join(["0x%x" % v for v in table]), F.modulus(), E.modulus(), alpha, ld[d][0], ld[d][0]+num-1)
+            print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % v for v in table]), N, M, F.modulus(), E.modulus(), alpha, ld[d][0], ld[d][0]+num-1, mp[ld[d][0]-1:ld[d][0]+num-1], ld[d][1])
             found += 1
