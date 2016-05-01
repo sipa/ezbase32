@@ -4824,15 +4824,16 @@ class Rander {
                 state[i] += q[i];
             }
         } else if ((pos & 0x1F) == 0) {
-            // One double round of ChaCha20
-            QR(state[0], state[4], state[8], state[12]);
-            QR(state[1], state[5], state[9], state[13]);
-            QR(state[2], state[6], state[10], state[14]);
-            QR(state[3], state[7], state[11], state[15]);
-            QR(state[0], state[5], state[10], state[15]);
-            QR(state[1], state[6], state[11], state[12]);
-            QR(state[2], state[7], state[8], state[13]);
-            QR(state[3], state[4], state[9], state[14]);
+            for (int i = 0; i < 4; i++) {
+                QR(state[0], state[4], state[8], state[12]);
+                QR(state[1], state[5], state[9], state[13]);
+                QR(state[2], state[6], state[10], state[14]);
+                QR(state[3], state[7], state[11], state[15]);
+                QR(state[0], state[5], state[10], state[15]);
+                QR(state[1], state[6], state[11], state[12]);
+                QR(state[2], state[7], state[8], state[13]);
+                QR(state[3], state[4], state[9], state[14]);
+            }
         }
     }
 
@@ -4844,7 +4845,7 @@ public:
 
     uint8_t GetByte() {
         Step();
-        uint8_t ret = state[(pos >> 2) & 7] >> (pos & 3);
+        uint8_t ret = state[(pos >> 2) & 7] >> (3 * (pos & 3));
         pos++;
         return ret;
     }
@@ -4862,7 +4863,7 @@ public:
 #define LENBITS 6
 
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
-#define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))
+#define CHECKSUMS 180
 
 #define MINERR 4
 #define MAXERR 8

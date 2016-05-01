@@ -2,6 +2,7 @@
 #include <mutex>
 #include <algorithm>
 
+#include <math.h>
 #include <map>
 #include <assert.h>
 #include <stdint.h>
@@ -20,13 +21,13 @@ namespace {
 
 /* BCH codes over GF(2^5)
  */
-uint32_t compute_checksum4(const uint8_t* data, int len, const uint32_t* tbl) {
+uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
     uint32_t l = 0;
 
     while (len > 6) {
         uint8_t c = *(data++);
         len--;
-        l = ((l & 0x1FFFFFFULL) << 5) ^ (tbl[(l >> 25) ^ c] & 0x3FFFFFFF);
+        l = ((l & 0x1FFFFFFULL) << 5) ^ tbl[(l >> 25) ^ c];
     }
 
     uint32_t f = *(data++);
@@ -40,7 +41,7 @@ uint32_t compute_checksum4(const uint8_t* data, int len, const uint32_t* tbl) {
     f |= *(data++);
     f <<= 5;
     f |= *(data++);
-    return ((l ^ f) * 1337) >> 2;
+    return ((l ^ f) * 13371337) >> 20;
 }
 
 #define LEN 64
@@ -51,36 +52,16 @@ struct CRCOutputs {
 
     CRCOutputs(const uint32_t *tbl) {
         unsigned char data[LEN] = {0};
-        uint32_t none = compute_checksum4(data, LEN, tbl);
+        uint32_t none = compute_bch(data, LEN, tbl);
         for (int pos = 0; pos < LEN; pos++) {
             for (int v = 0; v < MAXERR; v++) {
                 data[pos] = v + 1;
-                val[pos][v] = compute_checksum4(data, LEN, tbl) ^ none;
+                val[pos][v] = compute_bch(data, LEN, tbl) ^ none;
             }
             data[pos] = 0;
         }
     }
 };
-
-/*
-const uint32_t tbl[32] =  {
-0, 0x61628a6c, 0xe6c59eb1, 0xab1789c8,
-0x0e976928, 0x9ba2b753, 0x9c263a1a, 0xa0eeaa56,
-0xfdb9a429, 0xc80a03eb, 0x7dab6118, 0x10919891,
-0xc0dfb88a, 0xa7e81655, 0xe24098bf, 0x21c175df,
-0x502437b2, 0x10e91bc4, 0xfcfdca8a, 0x52937cce,
-0xc8825e02, 0x894fd3eb, 0xc08845cf, 0x70db58b2,
-0xf01e4f7e, 0x2f34712b, 0xee67a508, 0xf2714345,
-0x0ba51b75, 0x0b0e90cb, 0xb1b6c2fd, 0xb823972c,
-};
-*/
-
-// const uint32_t tbl[32] = {0x0, 0x2f5651d3, 0x33dc7f91, 0x1c8a2e42, 0xad3a5f5, 0x2585f426, 0x390fda64, 0x16598bb7, 0x15a74bdd, 0x3af11a0e, 0x267b344c, 0x92d659f, 0x1f74ee28, 0x3022bffb, 0x2ca891b9, 0x3fec06a, 0x283e4d6d, 0x7681cbe, 0x1be232fc, 0x34b4632f, 0x22ede898, 0xdbbb94b, 0x11319709, 0x3e67c6da, 0x3d9906b0, 0x12cf5763, 0xe457921, 0x211328f2, 0x374aa345, 0x181cf296, 0x496dcd4, 0x2bc08d07}; // F=(x^5 + x^4 + x^2 + x + 1) E=(e^2 + 10*e + 14) alpha=(18*e + 15) powers=3..6
-
-// const uint32_t tbl[32] = {0x0, 0x33174241, 0x3ade3d62, 0x9c97f23, 0x2babfac4, 0x18bcb885, 0x1175c7a6, 0x226285e7, 0xbb0cc68, 0x38a78e29, 0x316ef10a, 0x279b34b, 0x201b36ac, 0x130c74ed, 0x1ac50bce, 0x29d2498f, 0x159124d0, 0x26866691, 0x2f4f19b2, 0x1c585bf3, 0x3e3ade14, 0xd2d9c55, 0x4e4e376, 0x37f3a137, 0x1e21e8b8, 0x2d36aaf9, 0x24ffd5da, 0x17e8979b, 0x358a127c, 0x69d503d, 0xf542f1e, 0x3c436d5f}; // F=(x^5 + x^3 + x^2 + x + 1) E=(e^3 + 10*e^2 + 4*e + 3) alpha=(7*e^2 + 31*e + 3) powers=1..2
-
-// BCH_0077
-const uint32_t tbl[32] =  {0x0, 0x2f5651d3, 0x33dc7f91, 0x1c8a2e42, 0xad3a5f5, 0x2585f426, 0x390fda64, 0x16598bb7, 0x15a74bdd, 0x3af11a0e, 0x267b344c, 0x92d659f, 0x1f74ee28, 0x3022bffb, 0x2ca891b9, 0x3fec06a, 0x283e4d6d, 0x7681cbe, 0x1be232fc, 0x34b4632f, 0x22ede898, 0xdbbb94b, 0x11319709, 0x3e67c6da, 0x3d9906b0, 0x12cf5763, 0xe457921, 0x211328f2, 0x374aa345, 0x181cf296, 0x496dcd4, 0x2bc08d07}; // F=(x^5 + x^4 + x^2 + x + 1) E=(e^2 + 10*e + 14) alpha=(18*e + 15) powers=3..6
 
 class IncMap {
     // Encoding: packed per-byte serialized:
@@ -211,7 +192,6 @@ public:
                 if (value > 0x7F) {
                     abort();
                 }
-//                printf("  * Inserting (%i,%i)\n", (int)key, (int)value);
                 AppendOrdered(key, value);
             }
             if (newit == sortednew.end()) {
@@ -269,9 +249,20 @@ public:
     }
 };
 
-const CRCOutputs outputs(tbl);
+uint64_t SimpleRecurse(uint32_t accum, int errors, int minpos, const CRCOutputs& outputs) {
+    if (errors == 0) {
+        return accum == 0;
+    }
+    uint64_t ret = 0;
+    for (int pos = minpos; pos < LEN; pos++) {
+        for (int err = 1; err <= MAXERR; err++) {
+            ret += SimpleRecurse(accum ^ outputs.val[pos][err - 1], errors - 1, pos + 1, outputs);
+        }
+    }
+    return ret;
+}
 
-void Recurse(uint32_t accum, int errors, int minpos, int endpos, MutableIncMap& data) {
+void Recurse(uint32_t accum, int errors, int minpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
     if (errors == 0) {
         data.Increment(accum);
         if ((data.GetTotal() & 0xFFFFFF) == 0) {
@@ -281,21 +272,21 @@ void Recurse(uint32_t accum, int errors, int minpos, int endpos, MutableIncMap& 
     }
     for (int pos = minpos; pos < endpos - errors + 1; pos++) {
         for (int err = 1; err <= MAXERR; err++) {
-            Recurse(accum ^ outputs.val[pos][err - 1], errors - 1, pos + 1, endpos, data);
+            Recurse(accum ^ outputs.val[pos][err - 1], errors - 1, pos + 1, endpos, data, outputs);
         }
     }
 }
 
-void BuildEndMap(int errors, int endpos, MutableIncMap& data) {
+void BuildEndMap(int errors, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
     for (int err = 1; err <= MAXERR; err++) {
-        Recurse(outputs.val[endpos][err - 1], errors - 1, 0, endpos, data);
+        Recurse(outputs.val[endpos][err - 1], errors - 1, 0, endpos, data, outputs);
     }
     data.Prepare();
 }
 
-void BuildBeginMap(int errors, int beginpos, MutableIncMap& data) {
+void BuildBeginMap(int errors, int beginpos, MutableIncMap& data, const CRCOutputs& outputs) {
     for (int err = 1; err <= MAXERR; err++) {
-        Recurse(outputs.val[beginpos][err - 1], errors - 1, beginpos + 1, LEN, data);
+        Recurse(outputs.val[beginpos][err - 1], errors - 1, beginpos + 1, LEN, data, outputs);
     }
     data.Prepare();
 }
@@ -304,18 +295,19 @@ struct Maps {
     std::vector<MutableIncMap> beginmaps;
     std::vector<MutableIncMap> endmaps;
 
-    Maps(int errors) {
-        uint64_t count = 0;
+    Maps(int errors, const CRCOutputs& outputs) {
+        uint64_t count1 = 0, count2 = 0;
         printf("Building maps for %i errors...", errors);
         beginmaps.resize(LEN);
         endmaps.resize(LEN);
         for (int i = 0; i < LEN; i++) {
-            BuildBeginMap(errors, i, beginmaps[i]);
-            count += beginmaps[i].GetTotal();
-            BuildEndMap(errors, i, endmaps[i]);
-            count += endmaps[i].GetTotal();
+            BuildBeginMap(errors, i, beginmaps[i], outputs);
+            count1 += beginmaps[i].GetTotal();
+            BuildEndMap(errors, i, endmaps[i], outputs);
+            count2 += endmaps[i].GetTotal();
         }
-        printf("done (%llu combinations)\n", (unsigned long long)count);
+        assert(count1  == count2);
+        printf("done (%llu combinations)\n", (unsigned long long)count1);
     }
 
     uint64_t Failures() {
@@ -332,18 +324,23 @@ struct Maps {
 
     uint64_t FailuresCombined(const Maps& other) {
         uint64_t ret = 0;
+        uint64_t iter = 0;
         for (int i = 1; i < LEN - 1; i++) {
             const IncMap& endmap = endmaps[i];
             for (int j = i + 1; j < LEN; j++) {
-                const IncMap& beginmap = beginmaps[j];
+                const IncMap& beginmap = other.beginmaps[j];
                 IncMap::iterator eit = endmap.begin();
                 IncMap::iterator bit = beginmap.begin();
                 while (eit.Valid() && bit.Valid()) {
-                    while (eit.Valid() && bit.Valid() && bit.GetKey() != eit.GetKey()) {
-                        while (eit.Valid() && eit.GetKey() < bit.GetKey()) eit.Increment();
-                        while (bit.Valid() && bit.GetKey() < eit.GetKey()) bit.Increment();
+                    if (((++iter) % 0xFFFFFFF) == 0) printf(".");
+                    if (eit.GetKey() < bit.GetKey()) {
+                        eit.Increment();
+                        continue;
                     }
-                    if (!bit.Valid() || !eit.Valid()) break;
+                    if (bit.GetKey() < eit.GetKey()) {
+                        bit.Increment();
+                        continue;
+                    }
                     assert(eit.GetKey() == bit.GetKey());
                     ret += ((uint64_t)bit.GetValue()) * eit.GetValue();
                     bit.Increment();
@@ -355,48 +352,64 @@ struct Maps {
     }
 };
 
+double Combination(int k, int n) {
+    double ret = 1;
+    if (n - k < k) k = n - k;
+    for (int i = 1; i <= k; i++) {
+        ret = (ret * (n + 1 - i)) / i;
+    }
+    return ret;
 }
 
-int main(void) {
+}
+
+#define COMPUTEDISTANCE 6
+
+int main(int argc, char** argv) {
+    if (argc != 33) {
+        fprintf(stderr, "Usage: %s v0 v1 v2 v3... v31\n", argv[0]);
+        return(1);
+    }
+    uint32_t tbl[32];
+    for (int i = 0; i < 32; i++) {
+        unsigned long long r = strtoul(argv[i + 1], NULL, 0);
+        if (r >> CHECKSUMBITS) {
+            fprintf(stderr, "Error: table entry %i is outside of range\n", i);
+            return(1);
+        }
+        tbl[i] = r;
+    }
     std::vector<Maps> list;
+    uint64_t output[COMPUTEDISTANCE + 1] = {0};
+    bool computed[COMPUTEDISTANCE + 1] = {false};
+
     setbuf(stdout, NULL);
-
-/*
-    std::map<uint32_t, uint16_t> test;
-    MutableIncMap tes;
-    for (int i = 0; i < 1000000; i++) {
-        int r = random() % 100000;
-        tes.Increment(r);
-        test[r]++;
-        printf("Adding %i\n", r);
-        if (i % 2 == 0) {
-            tes.Prepare();
-            MutableIncMap::iterator it = tes.begin();
-            while (it.Valid()) {
-                printf("- Testing: (%i,%i), real: %i\n", (int)it.GetKey(), (int)it.GetValue(), (int)test[it.GetKey()]);
-                assert(test[it.GetKey()] == it.GetValue());
-                it.Increment();
+    for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
+        list.push_back(Maps(i, tbl));
+        if (!computed[i]) {
+            uint64_t directfail = (unsigned long long)list[i - 1].Failures();
+            printf("Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
+            output[i] = directfail;
+            computed[i] = true;
+        }
+        for (int j = 1; j <= i; j++) {
+            if (j + i <= COMPUTEDISTANCE && !computed[j + i]) {
+                printf("Undetected HD%i...", i + j);
+                uint64_t compoundfail = list[i - 1].FailuresCombined(list[j - 1]);
+                printf(" %llu\n", (unsigned long long)compoundfail);
+                output[j + i] = compoundfail;
+                computed[i] = true;
             }
         }
     }
-*/
-
-    for (int i = 1; i <= 3; i++) {
-        list.push_back(Maps(i));
-        printf("Undetected HD%i = %llu\n", i, (unsigned long long)list[i - 1].Failures());
-        for (int j = 1; j <= i; j++) {
-            printf("Undetected HD%i = %llu\n", i + j, (unsigned long long)list[i - 1].FailuresCombined(list[j - 1]));
+    for (int i = 1; i <= COMPUTEDISTANCE; i++) {
+        if (i > 1) printf(",");
+        if (output[i]) {
+            printf("%.16g", log(output[i] / (Combination(i, LEN) * pow(MAXERR, LEN)))/log(0.5));
+        } else {
+            printf("-");
         }
     }
-/*
-        for (int j = 1; j <= i; j++) {
-            uint64_t comb = GetCombinedError(list[j-1], j, list[i-1], i);
-            printf("Undetected HD%i", i+j);
-            for (int x = i+j-2; x >= 1; x -= 2) {
-                printf(" + HD%i", x);
-            }
-            printf(" <= %llu\n", (unsigned long long)comb);
-        }
-*/
+    printf("\n");
     return 0;
 }
