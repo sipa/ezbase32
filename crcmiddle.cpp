@@ -353,12 +353,14 @@ struct Maps {
 };
 
 double Combination(int k, int n) {
-    double ret = 1;
+    double num = 1.0;
+    double den = 1.0;
     if (n - k < k) k = n - k;
     for (int i = 1; i <= k; i++) {
-        ret = (ret * (n + 1 - i)) / i;
+        num *= (n - i + 1);
+        den *= i;
     }
-    return ret;
+    return num / den;
 }
 
 }
@@ -405,9 +407,9 @@ int main(int argc, char** argv) {
     for (int i = 1; i <= COMPUTEDISTANCE; i++) {
         if (i > 1) printf(",");
         if (output[i]) {
-            printf("%.16g", log(output[i] / (Combination(i, LEN) * pow(MAXERR, LEN)))/log(0.5));
+            printf("%.16g", output[i] / (Combination(i, LEN) * pow(MAXERR, i)) * 1073741824);
         } else {
-            printf("-");
+            printf("0");
         }
     }
     printf("\n");
