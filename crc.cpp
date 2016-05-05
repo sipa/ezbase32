@@ -4806,46 +4806,28 @@ struct Checksum {
 };
 */
 
-#define ROT(x,i) (((x) << (i)) | (x) >> (32-(i)))
-#define QR(a,b,c,d) do { a += b; d ^= a; d = ROT(d,16); c += d; b ^= c; b = ROT(b,12); a += b; d ^= a; d = ROT(d,8); c += d; b ^= c; b = ROT(b,7); } while(false)
-
 class Rander {
-    uint32_t state[16];
+    unsigned char data[4096];
     int pos;
 
     void Step() {
-        uint32_t q[16];
-        if ((pos & 0xFFFF) == 0) {
-            // Add hardware randomness
-            for (int i = 0; i < 16; i++) {
-                _rdrand32_step(&q[i]);
+        if ((pos & 0xFFF) == 0) {
+            for (int i = 0; i < 4096; i += sizeof(unsigned long long)) {
+                _rdrand64_step((unsigned long long*)(data + i));
             }
-            for (int i = 0; i < 16; i++) {
-                state[i] += q[i];
-            }
-        } else if ((pos & 0x1F) == 0) {
-            for (int i = 0; i < 4; i++) {
-                QR(state[0], state[4], state[8], state[12]);
-                QR(state[1], state[5], state[9], state[13]);
-                QR(state[2], state[6], state[10], state[14]);
-                QR(state[3], state[7], state[11], state[15]);
-                QR(state[0], state[5], state[10], state[15]);
-                QR(state[1], state[6], state[11], state[12]);
-                QR(state[2], state[7], state[8], state[13]);
-                QR(state[3], state[4], state[9], state[14]);
-            }
+            pos = 0;
         }
     }
 
 public:
     Rander() {
-        memset(state, 0, sizeof(state));
+        memset(data, 0, sizeof(data));
         pos = 0;
     }
 
     uint8_t GetByte() {
         Step();
-        uint8_t ret = state[(pos >> 2) & 7] >> (3 * (pos & 3));
+        uint8_t ret = data[pos];
         pos++;
         return ret;
     }
@@ -4862,8 +4844,9 @@ public:
 #define LEN 64
 #define LENBITS 6
 
+#define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
-#define CHECKSUMS 180
+// #define CHECKSUMS 180
 
 #define MINERR 4
 #define MAXERR 8
@@ -4961,7 +4944,7 @@ void thread_dump() {
         printf("\n");
         for (unsigned int i = 0; i < CHECKSUMS; i++) {
 //            printf("\"%s\"", checksums[i].name);
-            printf("\"BCH_%04i\"", i);
+            printf("\"BCH_0x%08x_0x%08x_0x%08x_0x%08x_0x%08x\"", tbl[i][1], tbl[i][2], tbl[i][4], tbl[i][8], tbl[i][16]);
             for (int e = 0; e < MAXERR-MINERR+1; e++) {
                 printf(",% 10g", ((double)allresults[e].fails[i]) / allresults[e].count * 1000000000.0);
             }

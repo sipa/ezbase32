@@ -64,23 +64,20 @@ while found < COUNT:
     mp=[]
     ld={}
     print "  * LCM"
-    num = DISTANCE-1
+    num = DISTANCE-1 
+    find = 0
     for i in range(1,N-num):
         mp.append((alpha^i).minpoly())
         if (i >= num):
-            l=lcm(mp[-num:])
-            if l.degree() not in ld:
-                ld[l.degree()] = (i-num+1,l)
-    for d in sorted(ld.keys()):
-        print "    * C=%i DEGREE=%i" % (ld[d][0], d)
-        if (d <= DEGREE):
-            generator = ld[d][1]
-            print "      * GENERATOR", ld[d][1]
-            table=[]
-            for i in range(Q):
-                n = 0
-                for p in range(generator.degree()):
-                    n = n * Q + (F_from_int[i] * generator.list()[generator.degree()-1-p]).integer_representation()
-                table.append(n)
-            print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % v for v in table]), N, M, F.modulus(), E.modulus(), alpha, ld[d][0], ld[d][0]+num-1, mp[ld[d][0]-1:ld[d][0]+num-1], ld[d][1])
-            found += 1
+            generator=lcm(mp[-num:])
+            if (generator.degree() == DEGREE):
+                table=[]
+                for j in range(Q):
+                    n = 0
+                    for p in range(generator.degree()):
+                        n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
+                    table.append(n)
+                print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % v for v in table]), N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
+                find = 1
+    found += find
+
