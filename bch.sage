@@ -3,9 +3,9 @@ import random
 CHARACTERISTIC=2
 FIELDDEGREE=5
 Q=CHARACTERISTIC**FIELDDEGREE
-M=2
-N=93
-DISTANCE=5
+M=3
+N=1057
+DISTANCE=4
 DEGREE=6
 COUNT=256
 
@@ -28,6 +28,8 @@ def polyfromarray(var, arr):
     return ret
 
 found = 0
+tried = set()
+
 while found < COUNT:
     print "* ITERATION"
     F.<f> = GF(Q, repr='int', modulus='random')
@@ -60,6 +62,10 @@ while found < COUNT:
                 break
 
     print "  * ALPHA", alpha
+    if ((F.modulus(), E.modulus(), alpha) in tried):
+        print "  * DONE"
+        continue
+    tried.add((F.modulus(), E.modulus(), alpha))
 
     mp=[]
     ld={}
