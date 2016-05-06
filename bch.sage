@@ -1,20 +1,5 @@
 import random
 
-CHARACTERISTIC=2
-FIELDDEGREE=5
-Q=CHARACTERISTIC**FIELDDEGREE
-M=3
-N=1057
-DISTANCE=4
-DEGREE=6
-COUNT=256
-
-
-assert(((Q**M)-1) % N == 0)
-
-print "BASEORDER:", Q
-print "EXTORDER:", Q**M
-
 def randlist(n, all):
     ret = []
     for i in range(n):
@@ -28,10 +13,11 @@ def polyfromarray(var, arr):
     return ret
 
 found = 0
-tried = set()
+usedemod = {}
 
-while found < COUNT:
-    print "* ITERATION"
+def attempt(Q,M,N,DISTANCE,DEGREE,max):
+    assert(((Q**M)-1) % N == 0)
+    print "* ITERATION %i**%i" % (Q, M)
     F.<f> = GF(Q, repr='int', modulus='random')
     print "  * FIELD mod", F.modulus()
 
@@ -42,11 +28,17 @@ while found < COUNT:
     if M == 1:
         E.<e> = F.extension(fp+1)
     else:
-        while True:
-            pol = polyfromarray(fp, [1] + randlist(M, F_all))
-            if pol.is_primitive():
-                break
-        E.<e> = F.extension(pol)
+        if (Q, F.modulus()) in usedemod:
+            print "* REUSING"
+            E = usedemod[(Q, F.modulus())]
+            e = E.gen()
+        else:
+            while True:
+                pol = polyfromarray(fp, [1] + randlist(M, F_all))
+                if pol.is_primitive():
+                    break
+            E.<e> = F.extension(pol)
+            usedemod[(Q, F.modulus())] = E
     print "  * EXTFIELD mod", E.modulus()
 
     ok = False
@@ -62,10 +54,6 @@ while found < COUNT:
                 break
 
     print "  * ALPHA", alpha
-    if ((F.modulus(), E.modulus(), alpha) in tried):
-        print "  * DONE"
-        continue
-    tried.add((F.modulus(), E.modulus(), alpha))
 
     mp=[]
     ld={}
@@ -84,6 +72,12 @@ while found < COUNT:
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
                 print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % v for v in table]), N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
-                find = 1
-    found += find
+                find += 1
+                if (find == max):
+                    return find
+            else:
+                print "      * POLY of degree %i" % generator.degree()
 
+
+for i in range(256):
+    attempt(32,2,93,5,6,1000000)
