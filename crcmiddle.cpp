@@ -26,8 +26,12 @@ uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
 
     while (len > 6) {
         uint8_t c = *(data++);
+        uint8_t e = (l >> 25) ^ c;
+        l = ((l & 0x1FFFFFFULL) << 5);
+        for (int i = 0; i < 5; i++) {
+            l ^= (~(((uint32_t)((e >> i) & 1)) - 1)) & tbl[i];
+        }
         len--;
-        l = ((l & 0x1FFFFFFULL) << 5) ^ tbl[(l >> 25) ^ c];
     }
 
     uint32_t f = *(data++);
@@ -368,12 +372,12 @@ double Combination(int k, int n) {
 #define COMPUTEDISTANCE 6
 
 int main(int argc, char** argv) {
-    if (argc != 33) {
-        fprintf(stderr, "Usage: %s v0 v1 v2 v3... v31\n", argv[0]);
+    if (argc != 6) {
+        fprintf(stderr, "Usage: %s v1 v2 v4 v8 v16\n", argv[0]);
         return(1);
     }
-    uint32_t tbl[32];
-    for (int i = 0; i < 32; i++) {
+    uint32_t tbl[5];
+    for (int i = 0; i < 5; i++) {
         unsigned long long r = strtoul(argv[i + 1], NULL, 0);
         if (r >> CHECKSUMBITS) {
             fprintf(stderr, "Error: table entry %i is outside of range\n", i);
