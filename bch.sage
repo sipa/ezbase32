@@ -12,13 +12,22 @@ def polyfromarray(var, arr):
         ret = ret * var + a
     return ret
 
+used_F = {}
+
 found = 0
-usedemod = {}
+used_E = {}
 
 def attempt(Q,M,N,DISTANCE,DEGREE,max):
     assert(((Q**M)-1) % N == 0)
-    print "* ITERATION %i**%i" % (Q, M)
-    F.<f> = GF(Q, repr='int', modulus='random')
+    print "* ITERATION %i**%i / %i" % (Q, M, N)
+
+    if Q in used_F:
+        F = used_F[Q]
+        f = F.gen()
+    else:
+        F.<f> = GF(Q, repr='int', modulus='random')
+        used_F[Q] = F
+
     print "  * FIELD mod", F.modulus()
 
     F_all = [x for x in F]
@@ -28,9 +37,9 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
     if M == 1:
         E.<e> = F.extension(fp+1)
     else:
-        if (Q, F.modulus()) in usedemod:
+        if (Q, M) in used_E:
             print "* REUSING"
-            E = usedemod[(Q, F.modulus())]
+            E = used_E[(Q, M)]
             e = E.gen()
         else:
             while True:
@@ -38,20 +47,25 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                 if pol.is_primitive():
                     break
             E.<e> = F.extension(pol)
-            usedemod[(Q, F.modulus())] = E
+            used_E[(Q, M)] = E
     print "  * EXTFIELD mod", E.modulus()
 
     ok = False
     while not ok:
         alpha = polyfromarray(e, randlist(M, F_all)) ** ((Q**M-1) // N)
+        alphan = 1
+        n = 0
         if alpha^N != 1:
             continue
         for di in N.divisors():
             if di == N:
                 ok = True
                 break
-            elif alpha^di == 1:
-                break
+            else:
+                alphan *= (alpha ** (di - n))
+                n = di
+                if alphan == 1:
+                    break
 
     print "  * ALPHA", alpha
 
@@ -71,13 +85,22 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                     for p in range(generator.degree()):
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
-                print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % v for v in table]), N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
+                print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % table[v] for v in [1,2,4,8,16]]), N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
                 find += 1
                 if (find == max):
                     return find
             else:
-                print "      * POLY of degree %i" % generator.degree()
+                 pass
+#                print "      * POLY of degree %i" % generator.degree()
 
+Q=32
+Ns={}
 
-for i in range(256):
-    attempt(32,2,93,5,6,1000000)
+for M in range(1,6):
+  for d in (Q**M-1).divisors():
+    if d > 64 and d < 65537 and d not in Ns:
+      Ns[d] = M
+
+for N in sorted(Ns.keys()):
+  M = Ns[N]
+  attempt(Q,M,N,4,6,1)
