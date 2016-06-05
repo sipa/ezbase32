@@ -1,8 +1,4 @@
 import random
-import sys
-import os
-
-unbuffered = os.fdopen(sys.stdout.fileno(), 'w', 0)
 
 def randlist(n, all):
     ret = []
@@ -48,9 +44,15 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
     format_len = int(math.ceil(log(B**(P*DEGREE)-1) /log(16)))
     assert(((Q**M)-1) % N == 0)
     assert(B.is_prime())
-    print "* ITERATION %i**%i / %i" % (Q, M, N)
 
-    unbuffered.write("Finding GF(%i) moduli..." % Q)
+    # Find alphas
+    alphalogs = []
+    ZP = Integers(Q**M - 1)
+    for i in range(Q**M - 1):
+        if (ZP(i).additive_order() == N):
+            alphalogs.append(i)
+
+    # Find base field moduli
     BF.<bf> = GF(B)
     BP.<bp> = BF[]
     F_moduli = []
@@ -58,83 +60,64 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         poly = polyfromarray(bp, [1] + coefs)
         if poly.is_primitive():
             F_moduli.append(poly)
-            unbuffered.write('.')
-    unbuffered.write("found %i\n" % len(F_moduli))
 
-    unbuffered.write("Finding GF(%i) moduli..." % Q**M)
-    F.<f> = GF(Q, repr='int', modulus=F_moduli[0])
-    F_map = [extexp(f,i) for i in range(Q)]
-    FP.<fp> = F[]
-    E_moduli = []
-    for coefs in alllist(M, Q):
-        tcoefs = [1] + coefs
-        poly = polyfromarray(fp, [F_map[x] for x in tcoefs])
-        if poly.is_primitive():
-            E.<e> = F.extension(poly)
-            ok = False
-            while not ok:
-                acoefs = randlist(M, range(Q))
-                prim = polyfromarray(e, [F_map[x] for x in acoefs])
-                ok = True
-                for (di, c) in (Q**M-1).factor():
-                    if (prim ** ((Q**M-1) // di)) == 1:
-                        ok = False
-                        break
-            E_moduli.append((tcoefs, acoefs))
-            unbuffered.write('.')
-            if (len(E_moduli) == 3):
-                break
-    unbuffered.write("found %i\n" % len(E_moduli))
-
-    poly = polyfromarray(fp, [F_map[x] for x in E_moduli[0][0]])
-    E.<e> = F.extension(poly)
-    prim = polyfromarray(e, [F_map[x] for x in E_moduli[0][1]])
-
-    unbuffered.write("Finding alpha logs...")
-    alphalogs = []
-    ZP = Integers(Q**M - 1)
-    for i in range(Q**M - 1):
-        if (ZP(i).additive_order() == N):
-            alphalogs.append(i)
-    unbuffered.write("found %i\n" % len(alphalogs))
-
-    unbuffered.write("Finding c values...")
-    cs = []
-    alpha = prim ** alphalogs[0]
-    mp = []
-    num = DISTANCE - 1
-    for i in range(1,N-num):
-        mp.append((alpha^i).minpoly())
-        if (i >= num):
-            generator=lcm(mp[-num:])
-            if (generator.degree() == DEGREE):
-                cs.append(i-num+1)
-    unbuffered.write("found %i\n" % len(cs))
-
-    count = 0
+    # Iterative over all base fields
     for F_modulus in F_moduli:
         F.<f> = GF(Q, repr='int', modulus=F_modulus)
         F_map = [extexp(f,i) for i in range(Q)]
-        F_from_int = {x.integer_representation() : x for x in F}
+        F_all = [x for x in F]
+        F_from_int = {f.integer_representation() : f for f in F}
         FP.<fp> = F[]
-        for (E_modulus, E_prim) in E_moduli:
-            poly = polyfromarray(fp, [F_map[x] for x in E_modulus])
-            E.<e> = F.extension(poly)
-            prim = polyfromarray(e, [F_map[x] for x in E_prim])
-            for alphalog in alphalogs:
-                alpha = prim ** alphalog
-                for c in cs:
-                    c1 = alpha^c
-                    generator = lcm([(c1*alpha^i).minpoly() for i in range(num)])
-                    table = []
-                    for p in range(P):
-                        j = B**p
-                        n = 0
-                        for p in range(generator.degree()):
-                            n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
-                        table.append(n)
-                    print "% 6i: GEN {%s} F_mod=%r E_mod=%r/%r alphalog=%r c=%r" % (count, ' '.join(['{0:#0{1}x}'.format(x, format_len + 2) for x in table]), F_modulus.coeffs(), E_modulus, E_prim, alphalog, c)
-                    count += 1
+
+        # Find extension field modulus (any is fine)
+        while True:
+            E_modulus = polyfromarray(fp, [F(1)] + randlist(M, F_all))
+            E.<e> = F.extension(E_modulus)
+            if E_modulus.is_primitive():
+                break
+
+        # Find primitive element in extension field (any is fine)
+        while True:
+            E_prim = polyfromarray(e, randlist(M, F_all))
+            ok = True
+            for di in (Q**M-1).divisors():
+                if di != (Q**M-1) and (E_prim ** di) == 1:
+                    ok = False
+                    break
+            if ok:
+                break
+
+        # Find c values
+        cs = []
+        alpha = E_prim ** alphalogs[0]
+        mp = []
+        num = DISTANCE - 1
+        alphan = 1
+        for i in range(1,N-num):
+            alphan *= alpha
+            mp.append(alphan.minpoly())
+            if (i >= num):
+                generator=lcm(mp[-num:])
+                if (generator.degree() == DEGREE):
+                    cs.append(i-num+1)
+
+        # Iterate over all alphas
+        for alphalog in alphalogs:
+            alpha = E_prim ** alphalog
+            # Iterate over all c values
+            for c in cs:
+                c1 = alpha^c
+                minpolys = [(c1*alpha^i).minpoly() for i in range(num)]
+                generator = lcm(minpolys)
+                table = []
+                for p in range(P):
+                    j = B**p
+                    n = 0
+                    for p in range(generator.degree()):
+                        n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
+                    table.append(n)
+                print "GEN {%s} F_mod=%r E_mod=%r E_primitive=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(x, format_len + 2) for x in table]), polyfromarray(B, [int(x) for x in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), alphalog, alpha.list(), c, minpolys)
+
 
 def attempt(Q,M,N,DISTANCE,DEGREE,max):
     assert(((Q**M)-1) % N == 0)
@@ -224,4 +207,4 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
 #  M = Ns[N]
 #  attempt(Q,M,N,4,6,1)
 
-attempt_exhaust(2,5,2,93,5,6)
+attempt_exhaust(2,5,2,341,4,6)
