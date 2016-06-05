@@ -107,6 +107,7 @@ struct StateInfo {
     size_t len;
     size_t count;
     double rate;
+    double progress;
 };
 
 class State {
@@ -116,6 +117,7 @@ class State {
     size_t len;
     std::set<uint16_t> candidates;
     std::vector<uint16_t> vcandidates;
+    double progress;
 
     double tim;
     double rate;
@@ -157,7 +159,7 @@ public:
 
     StateInfo GetInfo() {
         std::unique_lock<std::mutex> lock(mutex);
-        return StateInfo{len, candidates.size(), rate / weight};
+        return StateInfo{len, candidates.size(), rate / weight, progress};
     }
 
     void Update(double timer, double count) {
@@ -167,6 +169,7 @@ public:
         rate = coef * rate + (1.0 - coef) * count / (timer - tim);
         weight = weight * coef + (1.0 - coef);
         tim = timer;
+        progress += count / candidates.size();
     }
 };
 
@@ -217,7 +220,7 @@ void ThreadDump(State* state) {
     do {
         sleep(2);
         auto x = state->GetInfo();
-        printf("%lu length-%i codes left; %g TPF\n", (unsigned long)x.count, (int)x.len, 1073741824.0 / x.rate);
+        printf("%lu length-%i codes left (progress %g); %g TPF\n", (unsigned long)x.count, (int)x.len, x.progress / 1073741824.0, 1073741824.0 / x.rate);
     } while(true);
 }
 
