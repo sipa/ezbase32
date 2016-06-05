@@ -124,7 +124,7 @@ class State {
     double weight;
 
 public:
-    State(const std::vector<BCHCode>* codes_, size_t len_) : codes(codes_), len(len_ + 1) {}
+    State(const std::vector<BCHCode>* codes_, size_t len_) : codes(codes_), len(len_ + 1), progress(0), tim(0), rate(0), weight(0) {}
 
     std::pair<size_t, std::vector<const BCHCode*>> GetCodes(size_t num, Rander& rander) {
         std::vector<const BCHCode*> ret;
@@ -136,6 +136,7 @@ public:
                 candidates.insert(i);
             }
             len--;
+            progress = 0;
         }
 
         if (vcandidates.size() != candidates.size()) {
