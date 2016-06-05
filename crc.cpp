@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <set>
 
 #include <immintrin.h>
 
@@ -5554,7 +5555,7 @@ public:
     }
 };
 
-#define LEN 64
+#define LEN 70
 #define LENBITS 6
 
 #define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))
@@ -5562,7 +5563,7 @@ public:
 // #define CHECKSUMS 180
 
 #define MINERR 4
-#define MAXERR 8
+#define MAXERR 4
 
 
 struct CRCOutputs {
@@ -5600,7 +5601,7 @@ struct Results {
     }
 };
 
-void test(int errors, uint64_t loop, Results* ret, Rander& rng) {
+void test(int errors, uint64_t loop, Results* ret, Rander& rng, const std::set<int>& which) {
     Results res = {};
     for (uint64_t i = 0; i < loop; i++) {
         uint32_t crc[CHECKSUMS] = {0};
@@ -5615,11 +5616,11 @@ void test(int errors, uint64_t loop, Results* ret, Rander& rng) {
                 }
             } while (!ok);
             int mis = 1 + rng.GetInt(31, 5);
-            for (unsigned int c = 0; c < CHECKSUMS; c++) {
+            for (int c : which) {
                 crc[c] ^= outputs.val[errpos[j]][mis][c];
             }
         }
-        for (unsigned int c = 0; c < CHECKSUMS; c++) {
+        for (int c : which) {
             res.fails[c] += (crc[c] == outputs.val[0][0][c]);
         }
         res.count++;
@@ -5632,15 +5633,34 @@ std::mutex cs_allresults;
 
 void thread_crc() {
     Rander rng;
+    std::set<int> which;
+    for (int c = 0; c < CHECKSUMS; c++) {
+        which.insert(c);
+    }
+
     do {
         Results r[MAXERR-MINERR+1];
         for (int e = 0; e < MAXERR-MINERR+1; e++) {
-            test(e + MINERR, 1 << 16, &r[e], rng);
+            test(e + MINERR, 1 << 16, &r[e], rng, which);
         }
         {
             std::unique_lock<std::mutex> lock(cs_allresults);
             for (int e = 0; e < MAXERR-MINERR+1; e++) {
                 allresults[e] += r[e];
+            }
+            for (auto it = which.begin(); it != which.end(); ) {
+                bool keep = false;
+                for (int e = 0; e < MAXERR-MINERR+1; e++) {
+                    if (!allresults[e].fails[*it]) {
+                        keep = true;
+                        break;
+                    }
+                }
+                if (!keep) {
+                    which.erase(it++);
+                } else {
+                    ++it;
+                }
             }
         }
     } while(true);
@@ -5656,12 +5676,20 @@ void thread_dump() {
         }
         printf("\n");
         for (unsigned int i = 0; i < CHECKSUMS; i++) {
-//            printf("\"%s\"", checksums[i].name);
-            printf("\"BCH_0x%08x_0x%08x_0x%08x_0x%08x_0x%08x\"", tbl[i][1], tbl[i][2], tbl[i][4], tbl[i][8], tbl[i][16]);
+            bool ok = true;
             for (int e = 0; e < MAXERR-MINERR+1; e++) {
-                printf(",% 10g", ((double)allresults[e].fails[i]) / allresults[e].count * 1000000000.0);
+                if (allresults[e].fails[i]) {
+                    ok = false;
+                    break;
+                }
             }
-            printf("\n");
+            if (ok) {
+                printf("\"BCH 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\"", tbl[i][1], tbl[i][2], tbl[i][4], tbl[i][8], tbl[i][16]);
+                for (int e = 0; e < MAXERR-MINERR+1; e++) {
+                    printf(",% 10g", ((double)allresults[e].fails[i]) / allresults[e].count * 1000000000.0);
+                }
+                printf("\n");
+            }
         }
         printf("\n\n");
     } while(true);
