@@ -143,7 +143,7 @@ public:
             vcandidates.assign(candidates.begin(), candidates.end());
         }
 
-        for (size_t i = 0; i < num; i++) {
+        for (size_t i = 0; i < num && i < codes->size(); i++) {
             std::swap(vcandidates[i], vcandidates[i + rander.GetBigInt(codes->size() - i)]);
             ret.push_back(&((*codes)[vcandidates[i]]));
         }
@@ -163,12 +163,12 @@ public:
         return StateInfo{len, candidates.size(), rate / weight, progress};
     }
 
-    void Update(double timer, double count) {
+    void Update(double timer, double count, double duration) {
         std::unique_lock<std::mutex> lock(mutex);
 
         double coef = pow(0.99, timer - tim);
-        rate = coef * rate + (1.0 - coef) * count / (timer - tim);
-        weight = weight * coef + (1.0 - coef);
+        rate = coef * rate + count;
+        weight = coef * weight + duration;
         tim = timer;
         progress += count / candidates.size();
     }
@@ -177,6 +177,7 @@ public:
 void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
     Rander rander;
     do {
+        double start = timer();
         auto x = state->GetCodes(num, rander);
         int bits = 8 * sizeof(unsigned int) - __builtin_clz((unsigned int)x.first);
         std::vector<BCHCode> codes;
@@ -213,7 +214,8 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
                 }
             }
         }
-        state->Update(timer(), (double)iterations * (double)codes.size());
+        double stop = timer();
+        state->Update(stop, (double)iterations * (double)codes.size(), stop - start);
     } while(true);
 }
 
@@ -221,7 +223,7 @@ void ThreadDump(State* state) {
     do {
         sleep(2);
         auto x = state->GetInfo();
-        printf("%lu length-%i codes left (progress %g); %g TPF\n", (unsigned long)x.count, (int)x.len, x.progress / 1073741824.0, 1073741824.0 / x.rate);
+        printf("%lu length-%i codes left (progress %g; %g/s)\n", (unsigned long)x.count, (int)x.len, x.progress / 1073741824.0, x.rate / 1073741824.0);
     } while(true);
 }
 
