@@ -3,6 +3,7 @@
 #include <vector>
 #include <set>
 #include <string.h>
+#include <assert.h>
 #include <immintrin.h>
 #include <unistd.h>
 #include <mutex>
@@ -80,9 +81,10 @@ public:
 
 class BCHCode {
     uint32_t val[MAXLEN][31];
+    const std::string desc;
 
 public:
-    BCHCode(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3, uint32_t x4) {
+    BCHCode(const std::string& desc_, uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3, uint32_t x4) : desc(desc_) {
         uint8_t data[MAXLEN] = {0};
         uint32_t base = bch(data, MAXLEN, x0, x1, x2, x3, x4);
         for (int i = 0; i < MAXLEN; i++) {
@@ -94,12 +96,16 @@ public:
         }
     }
 
-    BCHCode(const BCHCode& code) {
+    BCHCode(const BCHCode& code) : desc(code.desc) {
         memcpy(val, code.val, sizeof(val));
     }
 
     inline uint32_t syndrome(size_t pos, int err) {
         return val[pos][err - 1];
+    }
+
+    std::string GetDesc() const {
+        return desc;
     }
 };
 
@@ -108,6 +114,7 @@ struct StateInfo {
     size_t count;
     double rate;
     double progress;
+    std::vector<std::string> names;
 };
 
 class State {
@@ -160,7 +167,11 @@ public:
 
     StateInfo GetInfo() {
         std::unique_lock<std::mutex> lock(mutex);
-        return StateInfo{len, candidates.size(), rate / weight, progress};
+        std::vector<std::string> v;
+        for (uint16_t t : candidates) {
+            v.push_back((*codes)[t].GetDesc());
+        }
+        return StateInfo{len, candidates.size(), rate / weight, progress, std::move(v)};
     }
 
     void Update(double timer, double count, double duration) {
@@ -221,20 +232,34 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
 
 void ThreadDump(State* state) {
     do {
-        sleep(2);
+        sleep(10);
         auto x = state->GetInfo();
         printf("%lu length-%i codes left (progress %g; %g/s)\n", (unsigned long)x.count, (int)x.len, x.progress / 1073741824.0, x.rate / 1073741824.0);
+        FILE* file = fopen("crcelim.dump.tmp", "w");
+        assert(file != NULL);
+        for (const std::string& name : x.names) {
+            fprintf(file, "%s\n", name.c_str());
+        }
+        fclose(file);
+        rename("crcelim.dump.tmp", "crcelim.dump");
     } while(true);
 }
 
 int main(void) {
+    setbuf(stdout, NULL);
     std::vector<BCHCode> codes;
     unsigned long l[5];
-    while (scanf("0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &l[0], &l[1], &l[2], &l[3], &l[4]) == 5) {
-        codes.emplace_back(l[0], l[1], l[2], l[3], l[4]);
+    char c[256];
+    while (fgets(c, sizeof(c), stdin)) {
+        if (sscanf(c, "0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &l[0], &l[1], &l[2], &l[3], &l[4]) == 5) {
+            while (isspace(c[strlen(c) - 1])) {
+                c[strlen(c) - 1] = 0;
+            }
+            codes.emplace_back(std::string(c), l[0], l[1], l[2], l[3], l[4]);
+        }
     }
     printf("Got %lu codes\n", (unsigned long)codes.size());
-    State state(&codes, 80);
+    State state(&codes, MAXLEN);
     for (int i = 0; i < 4; i++) {
         std::thread th(ThreadCheck, &state, 2 << 5, 4, 2 << 16);
         th.detach();
