@@ -48,7 +48,7 @@ uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
     return l ^ f;
 }
 
-#define LEN 64
+#define LEN 91
 #define MAXERR 31
 
 struct CRCOutputs {
@@ -369,7 +369,7 @@ double Combination(int k, int n) {
 
 }
 
-#define COMPUTEDISTANCE 6
+#define COMPUTEDISTANCE 4
 
 int main(int argc, char** argv) {
     if (argc != 6) {
