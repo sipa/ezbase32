@@ -350,13 +350,13 @@ void thread_dump() {
                     break;
                 }
             }
-            if (ok) {
+//            if (ok) {
                 printf("\"BCH 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\"", tbl[i][0], tbl[i][1], tbl[i][2], tbl[i][3], tbl[i][4]);
                 for (int e = 0; e < MAXERR-MINERR+1; e++) {
                     printf(",% 10g", ((double)allresults[e].fails[i]) / allresults[e].count * 1073741824.0);
                 }
                 printf("\n");
-            }
+//            }
         }
         printf("\n\n");
     } while(true);
