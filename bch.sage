@@ -180,7 +180,7 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
         mp.append((alpha^i).minpoly())
         if (i >= num):
             generator=lcm(mp[-num:])
-            if (generator.degree() == DEGREE):
+            if (generator.degree() <= DEGREE):
                 table=[]
                 for j in range(Q):
                     n = 0
@@ -195,16 +195,16 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
 
-#Q=32
-#Ns={}
+if False:
+    Q=32
+    Ns={}
+    for M in range(1,7):
+      for d in (Q**M-1).divisors():
+        if d > 130 and d < 4000 and d not in Ns:
+          Ns[d] = M
+    for N in sorted(Ns.keys()):
+      M = Ns[N]
+      attempt(Q,M,N,5,7,1)
 
-#for M in range(1,6):
-#  for d in (Q**M-1).divisors():
-#    if d > 64 and d < 65537 and d not in Ns:
-#      Ns[d] = M
-#
-#for N in sorted(Ns.keys()):
-#  M = Ns[N]
-#  attempt(Q,M,N,4,6,1)
-
-attempt_exhaust(2,5,2,341,4,6)
+if True:
+    attempt_exhaust(2,5,2,341,4,6)
