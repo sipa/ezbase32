@@ -122,8 +122,8 @@ class State {
     const std::vector<BCHCode>* codes;
 
     size_t len;
-    std::set<uint16_t> candidates;
-    std::vector<uint16_t> vcandidates;
+    std::set<uint32_t> candidates;
+    std::vector<uint32_t> vcandidates;
     double progress;
 
     double tim;
@@ -168,7 +168,7 @@ public:
     StateInfo GetInfo() {
         std::unique_lock<std::mutex> lock(mutex);
         std::vector<std::string> v;
-        for (uint16_t t : candidates) {
+        for (uint32_t t : candidates) {
             v.push_back((*codes)[t].GetDesc());
         }
         return StateInfo{len, candidates.size(), rate / weight, progress, std::move(v)};
