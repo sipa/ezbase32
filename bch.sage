@@ -207,4 +207,4 @@ if False:
       attempt(Q,M,N,5,7,1)
 
 if True:
-    attempt_exhaust(2,5,2,341,4,6)
+    attempt_exhaust(2,5,2,1023,4,6)

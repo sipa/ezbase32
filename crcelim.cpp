@@ -109,79 +109,150 @@ public:
     }
 };
 
-struct StateInfo {
+struct BCHState {
+    size_t codepos;
+    uint64_t attempts;
     size_t len;
-    size_t count;
+};
+
+struct StateInfo {
+    size_t len[4];
+    size_t count[4];
+    size_t firstiter;
     double rate;
-    double progress;
     std::vector<std::string> names;
+    std::vector<uint64_t> iterations;
+};
+
+struct BCHStatePtrComparator {
+    bool operator()(const BCHState* a, const BCHState* b) {
+        // Speed up the common case
+        if (a == b) return false;
+
+        // Codes that are candidates for higher lengths first
+        if (a->len > b->len) return true;
+        if (a->len < b->len) return false;
+
+        // Code with fewer attempts at the same length first
+        if (a->attempts < b->attempts) return true;
+        if (a->attempts > b->attempts) return false;
+
+        // Disambiguation
+        if (a < b) return true;
+        return false;
+    }
 };
 
 class State {
     std::mutex mutex;
     const std::vector<BCHCode>* codes;
+    std::vector<BCHState> states;
+    std::set<BCHState*, BCHStatePtrComparator> stateptrs;
 
-    size_t len;
-    std::set<uint32_t> candidates;
-    std::vector<uint32_t> vcandidates;
-    double progress;
-
-    double tim;
-    double rate;
-    double weight;
+    double rate, weight, tim;
 
 public:
-    State(const std::vector<BCHCode>* codes_, size_t len_) : codes(codes_), len(len_ + 1), progress(0), tim(0), rate(0), weight(0) {}
+    State(const std::vector<BCHCode>* codes_, size_t len_) : codes(codes_), rate(0), weight(0), tim(0) {
+        states.resize(codes->size());
+        for (size_t i = 0; i < states.size(); i++) {
+            states[i].codepos = i;
+            states[i].attempts = 0;
+            states[i].len = len_;
+            stateptrs.insert(&states[i]);
+        }
+    }
 
-    std::pair<size_t, std::vector<const BCHCode*>> GetCodes(size_t num, Rander& rander) {
-        std::vector<const BCHCode*> ret;
+    const BCHCode& code(size_t pos) { return (*codes)[pos]; }
+
+    std::pair<size_t, std::vector<size_t>> GetCodes(size_t num, size_t iterations) {
+        std::vector<size_t> ret;
         ret.reserve(num);
 
         std::unique_lock<std::mutex> lock(mutex);
-        if (candidates.empty()) {
-            for (size_t i = 0; i < codes->size(); i++) {
-                candidates.insert(i);
+
+        auto it = stateptrs.begin();
+        assert(it != stateptrs.end());
+        size_t len = (*it)->len;
+        ret.push_back((*it)->codepos);
+        {
+            auto oldit = it++;
+            auto oldptr = *oldit;
+            stateptrs.erase(oldit);
+            oldptr->attempts += iterations;
+            stateptrs.insert(oldptr);
+        }
+
+        while (it != stateptrs.end() && ret.size() < num) {
+            if ((*it)->len < len) {
+                break;
             }
-            len--;
-            progress = 0;
+            ret.push_back((*it)->codepos);
+            {
+                auto oldit = it++;
+                auto oldptr = *oldit;
+                stateptrs.erase(oldit);
+                oldptr->attempts += iterations;
+                stateptrs.insert(oldptr);
+            }
         }
 
-        if (vcandidates.size() != candidates.size()) {
-            vcandidates.assign(candidates.begin(), candidates.end());
-        }
-
-        for (size_t i = 0; i < num && i < codes->size(); i++) {
-            std::swap(vcandidates[i], vcandidates[i + rander.GetBigInt(codes->size() - i)]);
-            ret.push_back(&((*codes)[vcandidates[i]]));
-        }
 
         return std::make_pair(len, std::move(ret));
     }
 
-    void Failed(const BCHCode* code, size_t lendone) {
+    void Failed(size_t codepos, size_t faillen) {
         std::unique_lock<std::mutex> lock(mutex);
-        if (lendone == len) {
-            candidates.erase(code - &((*codes)[0]));
+        if (faillen <= states[codepos].len) {
+            stateptrs.erase(&states[codepos]);
+            states[codepos].attempts = 0;
+            states[codepos].len = faillen - 1;
+            stateptrs.insert(&states[codepos]);
         }
+    }
+
+    void Update(uint64_t count, double starttime) {
+        std::unique_lock<std::mutex> lock(mutex);
+
+        double t = timer();
+        double duration = t - starttime;
+        double coef = pow(0.99, t - tim);
+        rate = coef * rate + count;
+        weight = coef * weight + duration;
+        tim = t;
     }
 
     StateInfo GetInfo() {
         std::unique_lock<std::mutex> lock(mutex);
-        std::vector<std::string> v;
-        for (uint32_t t : candidates) {
-            v.push_back((*codes)[t].GetDesc());
+
+        StateInfo ret = {};
+        auto it = stateptrs.begin();
+        int got = -1;
+        size_t oldlen = 0;
+        size_t count = 0;
+
+        while (it != stateptrs.end() && got < 4) {
+            if ((*it)->len != oldlen) {
+                if (got >= 0) {
+                    ret.len[got] = oldlen;
+                    ret.count[got] = count;
+                } else {
+                    ret.firstiter = (*it)->attempts;
+                }
+                got++;
+                count = 1;
+                oldlen = (*it)->len;
+            } else {
+                count++;
+            }
+            if (got == 0) {
+                ret.names.push_back(code((*it)->codepos).GetDesc());
+                ret.iterations.push_back((*it)->attempts);
+            }
+            it++;
         }
-        return StateInfo{len, candidates.size(), rate / weight, progress, std::move(v)};
-    }
 
-    void Update(double timer, double count, double duration) {
-        std::unique_lock<std::mutex> lock(mutex);
-
-        double coef = pow(0.99, timer - tim);
-        rate = coef * rate + count;
-        weight = coef * weight + duration;
-        tim = timer;
-        progress += count / candidates.size();
+        ret.rate = rate / weight;
+        return ret;
     }
 };
 
@@ -189,18 +260,20 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
     Rander rander;
     do {
         double start = timer();
-        auto x = state->GetCodes(num, rander);
+        auto x = state->GetCodes(num, iterations);
         int bits = 8 * sizeof(unsigned int) - __builtin_clz((unsigned int)x.first);
         std::vector<BCHCode> codes;
         codes.reserve(x.second.size());
         for (auto p : x.second) {
-            codes.emplace_back(*p);
+            codes.emplace_back(state->code(p));
         }
 
         std::vector<uint32_t> crc;
         std::vector<size_t> errpos;
         errpos.resize(errs);
         for (size_t i = 0; i < iterations; i++) {
+            size_t firstpos = 0;
+            size_t lastpos = 0;
             crc.assign(codes.size(), 0);
             for (size_t e = 0; e < errs; e++) {
                 int ok;
@@ -218,15 +291,21 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
                 for (size_t c = 0; c < codes.size(); c++) {
                     crc[c] ^= codes[c].syndrome(errpos[e], mis);
                 }
+                if (e == 0) {
+                    firstpos = errpos[e];
+                    lastpos = errpos[e];
+                } else {
+                    firstpos = std::min(firstpos, errpos[e]);
+                    lastpos = std::max(lastpos, errpos[e]);
+                }
             }
             for (size_t c = 0; c < codes.size(); c++) {
                 if (crc[c] == 0) {
-                    state->Failed(x.second[c], x.first);
+                    state->Failed(x.second[c], lastpos - firstpos + 1);
                 }
             }
         }
-        double stop = timer();
-        state->Update(stop, (double)iterations * (double)codes.size(), stop - start);
+        state->Update(iterations * codes.size(), start);
     } while(true);
 }
 
@@ -234,11 +313,11 @@ void ThreadDump(State* state) {
     do {
         sleep(10);
         auto x = state->GetInfo();
-        printf("%lu length-%i codes left (progress %g; %g/s)\n", (unsigned long)x.count, (int)x.len, x.progress / 1073741824.0, x.rate / 1073741824.0);
+        printf("[%g Gi, %g Gi/s] {%i: %llu} {%i: %llu} {%i: %llu} {%i: %llu}\n", x.firstiter / 1073741824.0, x.rate / 1073741824.0, (int)x.len[0], (unsigned long long)x.count[0], (int)x.len[1], (unsigned long long)x.count[1], (int)x.len[2], (unsigned long long)x.count[2], (int)x.len[3], (unsigned long long)x.count[3]);
         FILE* file = fopen("crcelim.dump.tmp", "w");
         assert(file != NULL);
-        for (const std::string& name : x.names) {
-            fprintf(file, "%s\n", name.c_str());
+        for (size_t i = 0; i < x.names.size(); i++) {
+            fprintf(file, "%s # %llu iterations\n", x.names[i].c_str(), (unsigned long long)x.iterations[i]);
         }
         fclose(file);
         rename("crcelim.dump.tmp", "crcelim.dump");
@@ -260,7 +339,7 @@ int main(void) {
     }
     printf("Got %lu codes\n", (unsigned long)codes.size());
     State state(&codes, MAXLEN);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 8; i++) {
         std::thread th(ThreadCheck, &state, 2 << 5, 4, 2 << 16);
         th.detach();
     }
