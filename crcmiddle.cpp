@@ -48,7 +48,7 @@ uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
     return l ^ f;
 }
 
-#define LEN 90
+#define LEN 98
 #define MAXERR 31
 
 struct CRCOutputs {
