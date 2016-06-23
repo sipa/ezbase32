@@ -265,7 +265,7 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
     do {
         double start = timer();
         auto x = state->GetCodes(num, iterations);
-        int bits = 8 * sizeof(unsigned int) - __builtin_clz((unsigned int)x.first);
+        int bits = 8 * sizeof(unsigned int) - __builtin_clz((unsigned int)(x.first - 2));
         std::vector<BCHCode> codes;
         codes.reserve(x.second.size());
         for (auto p : x.second) {
@@ -274,38 +274,42 @@ void ThreadCheck(State* state, size_t num, size_t errs, size_t iterations) {
 
         std::vector<uint32_t> crc;
         std::vector<size_t> errpos;
-        errpos.resize(errs);
+        errpos.resize(errs - 2);
         for (size_t i = 0; i < iterations; i++) {
-            size_t firstpos = 0;
             size_t lastpos = 0;
             crc.assign(codes.size(), 0);
             for (size_t e = 0; e < errs; e++) {
-                int ok;
-                do {
-                    errpos[e] = rander.GetInt(x.first, bits);
-                    ok = 1;
-                    for (size_t f = 0; f < e; f++) {
-                        if (errpos[e] == errpos[f]) {
-                            ok = 0;
-                            break;
-                        }
+                size_t errp;
+                if (e == 0) {
+                    errp = 0;
+                } else if (e == 1) {
+                    lastpos = x.first - 1;
+                    while (rander.GetInt(2, 1)) {
+                       lastpos--;
                     }
-                } while (!ok);
+                    errp = lastpos;
+                } else {
+                    int ok;
+                    do {
+                        errp = 1 + rander.GetInt(lastpos - 1, bits);
+                        ok = 1;
+                        for (size_t f = 2; f < e; f++) {
+                            if (errp == errpos[f - 2]) {
+                                ok = 0;
+                                break;
+                            }
+                        }
+                    } while (!ok);
+                    errpos[e - 2] = errp;
+                }
                 int mis = 1 + rander.GetInt(31, 5);
                 for (size_t c = 0; c < codes.size(); c++) {
-                    crc[c] ^= codes[c].syndrome(errpos[e], mis);
-                }
-                if (e == 0) {
-                    firstpos = errpos[e];
-                    lastpos = errpos[e];
-                } else {
-                    firstpos = std::min(firstpos, errpos[e]);
-                    lastpos = std::max(lastpos, errpos[e]);
+                    crc[c] ^= codes[c].syndrome(errp, mis);
                 }
             }
             for (size_t c = 0; c < codes.size(); c++) {
                 if (crc[c] == 0) {
-                    state->Failed(x.second[c], lastpos - firstpos + 1);
+                    state->Failed(x.second[c], lastpos + 1);
                 }
             }
         }
