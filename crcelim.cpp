@@ -235,12 +235,12 @@ public:
         size_t oldlen = 0;
         size_t count = 0;
 
-        while (it != stateptrs.end() && got < 4) {
+        while (it != stateptrs.end()) {
             if ((*it)->len != oldlen) {
-                if (got >= 0) {
+                if (got >= 0 && got < 4) {
                     ret.len[got] = oldlen;
                     ret.count[got] = count;
-                } else {
+                } else if (got == -1) {
                     ret.firstiter = (*it)->attempts;
                 }
                 got++;
@@ -339,11 +339,12 @@ int main(void) {
     char c[256];
     while (fgets(c, sizeof(c), stdin)) {
         int len = 0;
-        if (sscanf(c, "%i 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &len, &l[0], &l[1], &l[2], &l[3], &l[4]) == 6) {
+        int skip;
+        if (sscanf(c, "%i %n0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &len, &skip, &l[0], &l[1], &l[2], &l[3], &l[4]) == 6) {
             while (isspace(c[strlen(c) - 1])) {
                 c[strlen(c) - 1] = 0;
             }
-            state.AddCode(BCHCode(std::string(c), l[0], l[1], l[2], l[3], l[4]), len);
+            state.AddCode(BCHCode(std::string(c + skip), l[0], l[1], l[2], l[3], l[4]), len);
         }
     }
     printf("Running\n");
