@@ -81,7 +81,7 @@ public:
 
 class BCHCode {
     uint32_t val[MAXLEN][31];
-    const std::string desc;
+    std::string desc;
 
 public:
     BCHCode(const std::string& desc_, uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3, uint32_t x4) : desc(desc_) {
@@ -122,6 +122,7 @@ struct StateInfo {
     double rate;
     std::vector<std::string> names;
     std::vector<uint64_t> iterations;
+    std::vector<size_t> lens;
 };
 
 struct BCHStatePtrComparator {
@@ -145,24 +146,28 @@ struct BCHStatePtrComparator {
 
 class State {
     std::mutex mutex;
-    const std::vector<BCHCode>* codes;
+    std::vector<BCHCode> codes;
     std::vector<BCHState> states;
     std::set<BCHState*, BCHStatePtrComparator> stateptrs;
 
     double rate, weight, tim;
 
 public:
-    State(const std::vector<BCHCode>* codes_, size_t len_) : codes(codes_), rate(0), weight(0), tim(0) {
-        states.resize(codes->size());
+
+    void AddCode(BCHCode&& code, size_t len) {
+        codes.emplace_back(std::move(code));
+        states.push_back(BCHState{codes.size() - 1, 0, len});
+    }
+
+    State() : rate(0), weight(0), tim(0) {}
+
+    void Start() {
         for (size_t i = 0; i < states.size(); i++) {
-            states[i].codepos = i;
-            states[i].attempts = 0;
-            states[i].len = len_;
             stateptrs.insert(&states[i]);
         }
     }
 
-    const BCHCode& code(size_t pos) { return (*codes)[pos]; }
+    const BCHCode& code(size_t pos) { return codes[pos]; }
 
     std::pair<size_t, std::vector<size_t>> GetCodes(size_t num, size_t iterations) {
         std::vector<size_t> ret;
@@ -244,10 +249,9 @@ public:
             } else {
                 count++;
             }
-            if (got == 0) {
-                ret.names.push_back(code((*it)->codepos).GetDesc());
-                ret.iterations.push_back((*it)->attempts);
-            }
+            ret.names.push_back(code((*it)->codepos).GetDesc());
+            ret.iterations.push_back((*it)->attempts);
+            ret.lens.push_back((*it)->len);
             it++;
         }
 
@@ -317,7 +321,7 @@ void ThreadDump(State* state) {
         FILE* file = fopen("crcelim.dump.tmp", "w");
         assert(file != NULL);
         for (size_t i = 0; i < x.names.size(); i++) {
-            fprintf(file, "%s # %llu iterations\n", x.names[i].c_str(), (unsigned long long)x.iterations[i]);
+            fprintf(file, "%i %s # %llu iterations\n", (int)x.lens[i], x.names[i].c_str(), (unsigned long long)x.iterations[i]);
         }
         fclose(file);
         rename("crcelim.dump.tmp", "crcelim.dump");
@@ -326,19 +330,20 @@ void ThreadDump(State* state) {
 
 int main(void) {
     setbuf(stdout, NULL);
-    std::vector<BCHCode> codes;
+    State state;
     unsigned long l[5];
     char c[256];
     while (fgets(c, sizeof(c), stdin)) {
-        if (sscanf(c, "0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &l[0], &l[1], &l[2], &l[3], &l[4]) == 5) {
+        int len = 0;
+        if (sscanf(c, "%i 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n", &len, &l[0], &l[1], &l[2], &l[3], &l[4]) == 6) {
             while (isspace(c[strlen(c) - 1])) {
                 c[strlen(c) - 1] = 0;
             }
-            codes.emplace_back(std::string(c), l[0], l[1], l[2], l[3], l[4]);
+            state.AddCode(BCHCode(std::string(c), l[0], l[1], l[2], l[3], l[4]), len);
         }
     }
-    printf("Got %lu codes\n", (unsigned long)codes.size());
-    State state(&codes, MAXLEN);
+    printf("Running\n");
+    state.Start();
     for (int i = 0; i < 8; i++) {
         std::thread th(ThreadCheck, &state, 2 << 5, 4, 2 << 16);
         th.detach();
