@@ -284,35 +284,43 @@ void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const C
     data.Prepare();
 }
 
-struct Maps {
+struct BeginMaps {
     std::vector<MutableIncMap> beginmaps;
-    std::vector<MutableIncMap> endmaps;
 
-    Maps(int errors, int len, const CRCOutputs& outputs) {
-        uint64_t count1 = 0, count2 = 0;
-        fprintf(stderr, "Building maps for %i errors...", errors);
+    BeginMaps(int errors, int len, const CRCOutputs& outputs) {
+        uint64_t count1 = 0;
+        fprintf(stderr, "Building begin maps for %i errors...", errors);
         beginmaps.resize(len);
-        endmaps.resize(len);
         for (int i = 0; i < len; i++) {
             BuildMap(errors, i, len - 1, beginmaps[i], outputs, true);
             count1 += beginmaps[i].GetTotal();
-            BuildMap(errors, 0, i, endmaps[i], outputs, false);
-            count2 += endmaps[i].GetTotal();
         }
-        fprintf(stderr, "done (%llu+%llu combinations)\n", (unsigned long long)count1, (unsigned long long)(count2));
+        fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)count1);
     }
 
     uint64_t Failures(int len) {
-        uint64_t ret1 = 0, ret2 = 0;
+        uint64_t ret1 = 0;
         IncMap::iterator it1 = beginmaps[0].begin();
         if (it1.Valid() && it1.GetKey()==0) ret1 += it1.GetValue();
-        IncMap::iterator it2 = endmaps[len - 1].begin();
-        if (it2.Valid() && it2.GetKey()==0) ret2 += it2.GetValue();
-        assert(ret1 * MAXERR == ret2);
-        return ret2 * MAXERR;
+        return ret1 * MAXERR;
+    }
+};
+
+struct EndMaps {
+    std::vector<MutableIncMap> endmaps;
+
+    EndMaps(int errors, int len, const CRCOutputs& outputs) {
+        uint64_t count2 = 0;
+        fprintf(stderr, "Building end maps for %i errors...", errors);
+        endmaps.resize(len);
+        for (int i = 0; i < len; i++) {
+            BuildMap(errors, 0, i, endmaps[i], outputs, false);
+            count2 += endmaps[i].GetTotal();
+        }
+        fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)(count2));
     }
 
-    uint64_t FailuresCombined(const Maps& other, int len) {
+    uint64_t FailuresCombined(const BeginMaps& other, int len) {
         uint64_t ret = 0;
         uint64_t iter = 0;
         for (int i = 0; i < len - 1; i++) {
@@ -373,15 +381,18 @@ int main(int argc, char** argv) {
         }
         tbl[i] = r;
     }
-    std::vector<Maps> list;
+    std::vector<BeginMaps> beginlist;
+    std::vector<EndMaps> endlist;
     uint64_t output[COMPUTEDISTANCE + 1] = {0};
     bool computed[COMPUTEDISTANCE + 1] = {false};
+    CRCOutputs outputs(tbl, codelen);
 
     setbuf(stdout, NULL);
     for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
-        list.push_back(Maps(i, testlen, CRCOutputs(tbl, codelen)));
+        beginlist.push_back(BeginMaps(i, testlen, outputs));
+        endlist.push_back(EndMaps(i, testlen, outputs));
         if (!computed[i]) {
-            uint64_t directfail = (unsigned long long)list[i - 1].Failures(testlen);
+            uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
             fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
             output[i] = directfail;
             computed[i] = true;
@@ -389,7 +400,7 @@ int main(int argc, char** argv) {
         for (int j = 1; j <= i; j++) {
             if (j + i <= COMPUTEDISTANCE /*&& !computed[j + i]*/) {
                 fprintf(stderr, "Undetected HD%i...", i + j);
-                uint64_t compoundfail = list[i - 1].FailuresCombined(list[j - 1], testlen);
+                uint64_t compoundfail = endlist[i - 1].FailuresCombined(beginlist[j - 1], testlen);
                 fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
                 output[j + i] = compoundfail;
                 computed[i] = true;
