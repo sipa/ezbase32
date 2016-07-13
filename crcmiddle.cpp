@@ -371,7 +371,7 @@ int main(int argc, char** argv) {
         return(1);
     }
     int codelen = strtoul(argv[1], NULL, 0);
-    int testlen = strtoul(argv[2], NULL, 0);
+    int maxtestlen = strtoul(argv[2], NULL, 0);
     uint32_t tbl[5];
     for (int i = 0; i < 5; i++) {
         unsigned long long r = strtoul(argv[i + 3], NULL, 0);
@@ -381,40 +381,44 @@ int main(int argc, char** argv) {
         }
         tbl[i] = r;
     }
-    std::vector<BeginMaps> beginlist;
     std::vector<EndMaps> endlist;
-    uint64_t output[COMPUTEDISTANCE + 1] = {0};
-    bool computed[COMPUTEDISTANCE + 1] = {false};
     CRCOutputs outputs(tbl, codelen);
 
     setbuf(stdout, NULL);
     for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
-        beginlist.push_back(BeginMaps(i, testlen, outputs));
-        endlist.push_back(EndMaps(i, testlen, outputs));
-        if (!computed[i]) {
-            uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
-            fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
-            output[i] = directfail;
-            computed[i] = true;
-        }
-        for (int j = 1; j <= i; j++) {
-            if (j + i <= COMPUTEDISTANCE /*&& !computed[j + i]*/) {
-                fprintf(stderr, "Undetected HD%i...", i + j);
-                uint64_t compoundfail = endlist[i - 1].FailuresCombined(beginlist[j - 1], testlen);
-                fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
-                output[j + i] = compoundfail;
+        endlist.push_back(EndMaps(i, maxtestlen, outputs));
+    }
+    for (int testlen = 1; testlen <= maxtestlen; testlen++) {
+        uint64_t output[COMPUTEDISTANCE + 1] = {0};
+        bool computed[COMPUTEDISTANCE + 1] = {false};
+        std::vector<BeginMaps> beginlist;
+        for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
+            beginlist.push_back(BeginMaps(i, testlen, outputs));
+            if (!computed[i]) {
+                uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
+                fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
+                output[i] = directfail;
                 computed[i] = true;
             }
+            for (int j = 1; j <= i; j++) {
+                if (j + i <= COMPUTEDISTANCE /*&& !computed[j + i]*/) {
+                    fprintf(stderr, "Undetected HD%i...", i + j);
+                    uint64_t compoundfail = endlist[i - 1].FailuresCombined(beginlist[j - 1], testlen);
+                    fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
+                    output[j + i] = compoundfail;
+                    computed[i] = true;
+                }
+            }
         }
-    }
-    printf("\"0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\",%i,%i", (unsigned long)tbl[0], (unsigned long)tbl[1], (unsigned long)tbl[2], (unsigned long)tbl[3], (unsigned long)tbl[4], codelen, testlen);
-    for (int i = 1; i <= COMPUTEDISTANCE; i++) {
-        if (output[i]) {
-            printf(",%.16g", output[i] / (Combination(i - 2, testlen - 2) * pow(MAXERR, i)) * 1073741824);
-        } else {
-            printf(",0");
+        printf("\"0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\",%i,%i", (unsigned long)tbl[0], (unsigned long)tbl[1], (unsigned long)tbl[2], (unsigned long)tbl[3], (unsigned long)tbl[4], codelen, testlen);
+        for (int i = 1; i <= COMPUTEDISTANCE; i++) {
+            if (output[i]) {
+                printf(",%.16g", output[i] / (Combination(i - 2, testlen - 2) * pow(MAXERR, i)) * 1073741824);
+            } else {
+                printf(",0");
+            }
         }
+        printf("\n");
     }
-    printf("\n");
     return 0;
 }
