@@ -67,11 +67,11 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         F_map = [extexp(f,i) for i in range(Q)]
         F_all = [x for x in F]
         F_from_int = {f.integer_representation() : f for f in F}
-        FP.<fp> = F[]
+        FP.<x> = F[]
 
         # Find extension field modulus (any is fine)
         while True:
-            E_modulus = polyfromarray(fp, [F(1)] + randlist(M, F_all))
+            E_modulus = polyfromarray(x, [F(1)] + randlist(M, F_all))
             E.<e> = F.extension(E_modulus)
             if E_modulus.is_primitive():
                 break
@@ -98,7 +98,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             mp.append(alphan.minpoly())
             if (i >= num):
                 generator=lcm(mp[-num:])
-                if (generator.degree() == DEGREE):
+                if (generator.degree() + 1 == DEGREE):
                     cs.append(i-num+1)
 
         # Iterate over all alphas
@@ -107,7 +107,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             # Iterate over all c values
             for c in cs:
                 c1 = alpha^c
-                minpolys = [(c1*alpha^i).minpoly() for i in range(num)]
+                minpolys = [(c1*alpha^i).minpoly() for i in range(num)] + [x + 1]
                 generator = lcm(minpolys)
                 table = []
                 for p in range(P):
@@ -116,7 +116,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     for p in range(generator.degree()):
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
-                print "GEN {%s} F_mod=%r E_mod=%r E_primitive=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(x, format_len + 2) for x in table]), polyfromarray(B, [int(x) for x in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), alphalog, alpha.list(), c, minpolys)
+                print "GEN {%s} F_mod=%r E_mod=%r E_primitive=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), alphalog, alpha.list(), c, minpolys)
 
 
 def attempt(Q,M,N,DISTANCE,DEGREE,max):
@@ -207,4 +207,4 @@ if False:
       attempt(Q,M,N,5,7,1)
 
 if True:
-    attempt_exhaust(2,5,2,1023,4,6)
+    attempt_exhaust(2,5,2,93,4,6)
