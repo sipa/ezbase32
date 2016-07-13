@@ -98,7 +98,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             mp.append(alphan.minpoly())
             if (i >= num):
                 generator=lcm(mp[-num:])
-                if (generator.degree() + 1 == DEGREE):
+                if (generator.degree()  == DEGREE):
                     cs.append(i-num+1)
 
         # Iterate over all alphas
@@ -107,7 +107,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             # Iterate over all c values
             for c in cs:
                 c1 = alpha^c
-                minpolys = [(c1*alpha^i).minpoly() for i in range(num)] + [x + 1]
+                minpolys = [(c1*alpha^i).minpoly() for i in range(num)]
                 generator = lcm(minpolys)
                 table = []
                 for p in range(P):
@@ -207,4 +207,4 @@ if False:
       attempt(Q,M,N,5,7,1)
 
 if True:
-    attempt_exhaust(2,5,2,93,4,6)
+    attempt_exhaust(2,5,2,93,5,6)
