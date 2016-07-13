@@ -262,11 +262,11 @@ void Recurse(uint32_t accum, int errors, int minpos, int endpos, MutableIncMap& 
 }
 
 /* Always sets positions beginpos and endpos */
-void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
+void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs, bool reduce) {
 //    [5~printf("[begin %i in %i..%i] ", errors, beginpos, endpos);
     if (errors == 1) {
         if (beginpos == endpos) {
-            for (int err = 1; err <= MAXERR; err++) {
+            for (int err = 1; err <= (reduce ? 1 : MAXERR); err++) {
 //                printf("[ADD %lu]", (unsigned long)outputs.val[endpos][err - 1]);
                 data.Increment(outputs.val[endpos][err - 1]);
             }
@@ -274,7 +274,7 @@ void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const C
     } else {
         if (beginpos != endpos) {
             for (int err = 1; err <= MAXERR; err++) {
-                for (int err2 = 1; err2 <= MAXERR; err2++) {
+                for (int err2 = 1; err2 <= (reduce ? 1 : MAXERR); err2++) {
                     Recurse(outputs.val[beginpos][err - 1] ^ outputs.val[endpos][err2 - 1], errors - 2, beginpos + 1, endpos, data, outputs);
                 }
             }
@@ -294,9 +294,9 @@ struct Maps {
         beginmaps.resize(len);
         endmaps.resize(len);
         for (int i = 0; i < len; i++) {
-            BuildMap(errors, i, len - 1, beginmaps[i], outputs);
+            BuildMap(errors, i, len - 1, beginmaps[i], outputs, true);
             count1 += beginmaps[i].GetTotal();
-            BuildMap(errors, 0, i, endmaps[i], outputs);
+            BuildMap(errors, 0, i, endmaps[i], outputs, false);
             count2 += endmaps[i].GetTotal();
         }
         fprintf(stderr, "done (%llu+%llu combinations)\n", (unsigned long long)count1, (unsigned long long)(count2));
@@ -308,8 +308,8 @@ struct Maps {
         if (it1.Valid() && it1.GetKey()==0) ret1 += it1.GetValue();
         IncMap::iterator it2 = endmaps[len - 1].begin();
         if (it2.Valid() && it2.GetKey()==0) ret2 += it2.GetValue();
-        assert(ret1 == ret2);
-        return ret2;
+        assert(ret1 * MAXERR == ret2);
+        return ret2 * MAXERR;
     }
 
     uint64_t FailuresCombined(const Maps& other, int len) {
@@ -338,7 +338,7 @@ struct Maps {
                 }
             }
         }
-        return ret;
+        return ret * MAXERR;
     }
 };
 
