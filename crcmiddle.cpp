@@ -17,34 +17,31 @@
 
 namespace {
 
-#define CHECKSUMBITS 30
+#define CHECKSUMBITS 45
+#define CHECKSYMBOLS 9
+
+#define BASEBITS (5*(CHECKSYMBOLS-1))
 
 /* BCH codes over GF(2^5)
  */
-uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
-    uint32_t l = 0;
+uint64_t compute_bch(const uint8_t* data, int len, const uint64_t* tbl) {
+    uint64_t l = 0;
 
-    while (len > 6) {
+    while (len > CHECKSYMBOLS) {
         uint8_t c = *(data++);
-        uint8_t e = (l >> 25) ^ c;
-        l = ((l & 0x1FFFFFFULL) << 5);
+        uint8_t e = (l >> BASEBITS) ^ c;
+        l = (l & ((((uint64_t)1) << BASEBITS) - 1)) << 5;
         for (int i = 0; i < 5; i++) {
-            l ^= (~(((uint32_t)((e >> i) & 1)) - 1)) & tbl[i];
+            l ^= (~(((uint64_t)((e >> i) & 1)) - 1)) & tbl[i];
         }
         len--;
     }
 
-    uint32_t f = *(data++);
-    f <<= 5;
-    f |= *(data++);
-    f <<= 5;
-    f |= *(data++);
-    f <<= 5;
-    f |= *(data++);
-    f <<= 5;
-    f |= *(data++);
-    f <<= 5;
-    f |= *(data++);
+    uint64_t f = 0;
+    for (int i = 0; i < CHECKSYMBOLS; i++) {
+        f <<= 5;
+        f |= *(data++);
+    }
     return l ^ f;
 }
 
@@ -52,11 +49,11 @@ uint32_t compute_bch(const uint8_t* data, int len, const uint32_t* tbl) {
 #define MAXERR 31
 
 struct CRCOutputs {
-    uint32_t val[LEN][MAXERR];
+    uint64_t val[LEN][MAXERR];
 
-    CRCOutputs(const uint32_t *tbl, int len) {
+    CRCOutputs(const uint64_t *tbl, int len) {
         unsigned char data[LEN] = {0};
-        uint32_t none = compute_bch(data, len, tbl);
+        uint64_t none = compute_bch(data, len, tbl);
         for (int pos = 0; pos < len; pos++) {
             for (int v = 0; v < MAXERR; v++) {
                 data[pos] = v + 1;
@@ -69,12 +66,12 @@ struct CRCOutputs {
 
 class IncMap {
     std::vector<uint8_t> data;
-    uint32_t lastkey;
+    uint64_t lastkey;
 
     IncMap(const IncMap& x) = delete;
     IncMap& operator=(const IncMap& x) = delete;
 
-    void WriteNum(uint32_t num) {
+    void WriteNum(uint64_t num) {
 //        printf("[W %lu]", (unsigned long)num);
         while (num >= 128) {
             data.push_back(0x80 | (num & 0x7F));
@@ -83,11 +80,11 @@ class IncMap {
         data.push_back(num);
     }
 
-    static uint32_t ReadNum(std::vector<uint8_t>::const_iterator& it) {
-        uint32_t ret = 0;
+    static uint64_t ReadNum(std::vector<uint8_t>::const_iterator& it) {
+        uint64_t ret = 0;
         int shift = 0;
         do {
-            uint32_t r = *(it++);
+            uint64_t r = *(it++);
             ret |= ((r & 0x7F) << shift);
             if (r & 0x80) {
                 shift += 7;
@@ -99,7 +96,7 @@ class IncMap {
         return ret;
     }
 
-    void AppendOrdered(uint32_t key, uint32_t value) {
+    void AppendOrdered(uint64_t key, uint64_t value) {
         assert(key != lastkey);
         WriteNum(key - lastkey);
         WriteNum(value - 1);
@@ -115,12 +112,12 @@ public:
 
     class iterator {
         bool done;
-        uint32_t key;
-        uint32_t value;
+        uint64_t key;
+        uint64_t value;
         std::vector<uint8_t>::const_iterator inner;
 
         void Next() {
-            uint32_t skip = IncMap::ReadNum(inner);
+            uint64_t skip = IncMap::ReadNum(inner);
             if (skip == 0) {
                 done = true;
                 return;
@@ -129,15 +126,15 @@ public:
             value = IncMap::ReadNum(inner) + 1;
         }
 
-        iterator(std::vector<uint8_t>::const_iterator inner_) : done(false), key((uint32_t)(-1)), inner(inner_) {
+        iterator(std::vector<uint8_t>::const_iterator inner_) : done(false), key((uint64_t)(-1)), inner(inner_) {
             Next();
         }
 
     public:
-        uint32_t GetKey() {
+        uint64_t GetKey() {
             return key;
         }
-        uint32_t GetValue() {
+        uint64_t GetValue() {
             return value;
         }
         bool Valid() {
@@ -154,13 +151,13 @@ public:
 
     iterator begin() const { return iterator(data.begin()); }
 
-    IncMap(const IncMap& old, const std::vector<uint32_t>& sortednew) : lastkey((uint32_t)(-1)) {
+    IncMap(const IncMap& old, const std::vector<uint64_t>& sortednew) : lastkey((uint64_t)(-1)) {
         iterator oldit = old.begin();
-        std::vector<uint32_t>::const_iterator newit = sortednew.begin();
-        uint32_t key = 0;
+        std::vector<uint64_t>::const_iterator newit = sortednew.begin();
+        uint64_t key = 0;
         data.reserve(old.data.size() + 3 * sortednew.size());
         while(true) {
-            uint32_t value = 0;
+            uint64_t value = 0;
             if (oldit.Valid() && oldit.GetKey() == key) {
                 value += oldit.GetValue();
                 oldit.Increment();
@@ -201,7 +198,7 @@ protected:
 };
 
 class MutableIncMap : public IncMap {
-    std::vector<uint32_t> unsorted;
+    std::vector<uint64_t> unsorted;
     uint64_t total;
 
     void Merge() {
@@ -213,7 +210,7 @@ class MutableIncMap : public IncMap {
 public:
     MutableIncMap() : total(0) {}
 
-    void Increment(uint32_t key) {
+    void Increment(uint64_t key) {
         unsorted.push_back(key);
         if (unsorted.size() * 4 > Memusage() + 65536) {
             Merge();
@@ -232,7 +229,7 @@ public:
     }
 };
 
-uint64_t SimpleRecurse(uint32_t accum, int errors, int minpos, const CRCOutputs& outputs) {
+uint64_t SimpleRecurse(uint64_t accum, int errors, int minpos, const CRCOutputs& outputs) {
     if (errors == 0) {
         return accum == 0;
     }
@@ -245,7 +242,7 @@ uint64_t SimpleRecurse(uint32_t accum, int errors, int minpos, const CRCOutputs&
     return ret;
 }
 
-void Recurse(uint32_t accum, int errors, int minpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
+void Recurse(uint64_t accum, int errors, int minpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
     if (errors == 0) {
 //        printf("[ADD %lu]", (unsigned long)accum);
         data.Increment(accum);
@@ -372,7 +369,7 @@ int main(int argc, char** argv) {
     }
     int codelen = strtoul(argv[1], NULL, 0);
     int maxtestlen = strtoul(argv[2], NULL, 0);
-    uint32_t tbl[5];
+    uint64_t tbl[5];
     for (int i = 0; i < 5; i++) {
         unsigned long long r = strtoul(argv[i + 3], NULL, 0);
         if (r >> CHECKSUMBITS) {

@@ -105,8 +105,9 @@ for my $stat (@stats) {
         my @code = (hex $1,hex $2,hex $3,hex $4,hex $5);
         my @xcode = map { (($_&1)*$code[0]) ^ ((($_>>1)&1)*$code[1]) ^ ((($_>>2)&1)*$code[2]) ^ ((($_>>3)&1)*$code[3]) ^ ((($_>>4)&1)*$code[4]) } (1..31);
         my $mag = sum (map { log($_)/log(2) } @code);
-        my $minbits = sum (map { abs(15 - bitcount($_)) } @xcode);
-        print $mag, " ", $minbits, " ";
+        my $maxdev = max (map { abs(15 - bitcount($_)) } @xcode);
+        my $sumdev = sum (map { abs(15 - bitcount($_)) } @xcode);
+        print $mag, " ", $maxdev, " ", $sumdev, " ";
     } else {
         exit;
     }
