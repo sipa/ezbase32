@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
-# {, // N=1057 M=3 F=(x^5 + x^3 + 1) E=(e^3 + 11*e^2 + 11*e + 4) alpha=(11*e^2 + 11*e + 11) powers=340..342 minpolys=[x^3 + 24*x^2 + 22*x + 1, x^3 + 14*x^2 + 19*x + 1, x^3 + 14*x^2 + 19*x + 1] gen=(x^6 + 22*x^5 + 24*x^4 + 13*x^3 + 4*x^2 + 5*x + 1)
+# GEN {0x0223776d 0x04464ffa 0x088c3efd 0x110cf8f3 0x209dd5cf} F_mod=37 E_mod=[29, 21, 1] E_primitive=[8, 30] alphalog=247 alpha=[6, 14] c=750 minpolys=[x^2 + 7*x + 4, x^2 + 3*x + 14, x^2 + 5*x + 21]
 
 def bch(checksum, data):
     for d in data:
         b = (checksum >> 25) ^ d
         checksum = (checksum & 0x1FFFFFF) << 5
-        checksum ^= -((b & 1) != 0) & 763793569 # 0x2d8690a1
-        checksum ^= -((b & 2) != 0) & 194847042 # 0x0b9d2142
-        checksum ^= -((b & 4) != 0) & 364823172 # 0x15bec284
-        checksum ^= -((b & 8) != 0) & 704226344 # 0x29f9a428
-        checksum ^= -((b & 16) != 0) & 58181712 # 0x0377c850
+        checksum ^= ((b & 1) != 0) * 35878765
+        checksum ^= ((b & 2) != 0) * 71716858
+        checksum ^= ((b & 4) != 0) * 143408893
+        checksum ^= ((b & 8) != 0) * 286062835
+        checksum ^= ((b & 16) != 0) * 547214799
     return checksum
 
 def convertbits(data, frombits, tobits, pad=True):
@@ -59,11 +59,6 @@ def decode(context, ezbase32):
     if checksum != checksum2:
         return (None, None)
     return (ezbase32[:prefixlen], bytearray(convertbits(u5checksum[:-6], 5, 8, False)))
-
-B5EXP=[1,2,4,8,16,9,18,13,26,29,19,15,30,21,3,6,12,24,25,27,31,23,7,14,28,17,11,22,5,10,20,1]
-B5LOG=[-1,0,1,14,2,28,15,22,3,5,29,26,16,7,23,11,4,25,6,10,30,13,27,21,17,18,8,19,24,9,12,20]
-
-
 
 if __name__ == '__main__':
     ff = [100,200,300,400,500,600,700,800,900,1000]
