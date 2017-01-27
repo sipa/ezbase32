@@ -107,7 +107,8 @@ for my $stat (@stats) {
         my $mag = sum (map { log($_)/log(2) } @code);
         my $maxdev = max (map { abs(15 - bitcount($_)) } @xcode);
         my $sumdev = sum (map { abs(15 - bitcount($_)) } @xcode);
-        print $mag, " ", $maxdev, " ", $sumdev, " ";
+        my $linmag = sum (map { bitcount($_) } @code);
+        print $mag, " ", $maxdev, " ", $sumdev, " ", $linmag, " ";
     } else {
         exit;
     }

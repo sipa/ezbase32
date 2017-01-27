@@ -12,13 +12,8 @@
 
 namespace {
 
-const uint32_t tbl[6][5] = {
-    {0x0223776d, 0x04464ffa, 0x088c3efd, 0x110cf8f3, 0x209dd5cf},
-    {0x1223776d, 0x04464ffa, 0x088c3efd, 0x110cf8f3, 0x209dd5cf},
-    {0x0223776d, 0x05464ffa, 0x088c3efd, 0x110cf8f3, 0x209dd5cf},
-    {0x0223776d, 0x04464ffa, 0x089c3efd, 0x110cf8f3, 0x209dd5cf},
-    {0x0223776d, 0x04464ffa, 0x088c3efd, 0x110df8f3, 0x209dd5cf},
-    {0x0223776d, 0x04464ffa, 0x088c3efd, 0x110cf8f3, 0x209de5cf},
+const uint32_t tbl[1][5] = {
+  {0x53A0C81, 0x8F09902, 0x11E13204, 0x21526128, 0x12346650}
 };
 
 /* BCH codes over GF(2^5)
@@ -167,7 +162,7 @@ public:
     }
 };
 
-#define LEN 89
+#define LEN 90
 #define LENBITS 7
 
 #define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))

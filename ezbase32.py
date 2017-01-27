@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 
+import random
+
 # GEN {0x0223776d 0x04464ffa 0x088c3efd 0x110cf8f3 0x209dd5cf} F_mod=37 E_mod=[29, 21, 1] E_primitive=[8, 30] alphalog=247 alpha=[6, 14] c=750 minpolys=[x^2 + 7*x + 4, x^2 + 3*x + 14, x^2 + 5*x + 21]
 
-def bch(checksum, data):
-    for d in data:
-        b = (checksum >> 25) ^ d
-        checksum = (checksum & 0x1FFFFFF) << 5
-        checksum ^= ((b & 1) != 0) * 35878765
-        checksum ^= ((b & 2) != 0) * 71716858
-        checksum ^= ((b & 4) != 0) * 143408893
-        checksum ^= ((b & 8) != 0) * 286062835
-        checksum ^= ((b & 16) != 0) * 547214799
-    return checksum
+def bch(c, d):
+    b = c >> 25
+    c = d ^ (c & 0x1FFFFFF) << 5
+    c ^= -((b >> 0) & 1) & 0x223776D
+    c ^= -((b >> 1) & 1) & 0x4464FFA
+    c ^= -((b >> 2) & 1) & 0x88C3EFD
+    c ^= -((b >> 3) & 1) & 0x110CF8F3
+    c ^= -((b >> 4) & 1) & 0x209DD5CF
+    return c
 
 def convertbits(data, frombits, tobits, pad=True):
     acc = 0
@@ -33,41 +34,44 @@ def convertbits(data, frombits, tobits, pad=True):
         return None
     return ret
 
-ZBASE32 = "ybndrfg8ejkmcpqxot1uwisza345h769"
+ZBASE32 = "bcdefghijkmnpqrstvwxyz0123456789"
 
-def encode(prefix, context, databytes):
-    if len(prefix) > 30 or len(databytes) > 36:
+INIT = 0x34056df6
+
+def decode(s):
+    r = []
+    p = 0
+    chk = 1
+    for c in s:
+        if c == '-':
+            chk = bch(chk, p)
+            r.append(-1)
+        else:
+            f = ZBASE32.find(c)
+            if f == -1:
+                return None
+            chk = bch(chk, f)
+            r.append(f)
+    if c != INIT:
         return None
-    u5 = convertbits(databytes, 8, 5)
-    checksum = bch(bch(bch(context, [1 + len(prefix)]), bytearray(prefix, "utf8")), u5)
-    return prefix + ''.join([ZBASE32[x] for x in u5 + convertbits([checksum], 30, 5)])
-
-def decode(context, ezbase32):
-    prefixlen = None
-    for p in range(31):
-        if all(x in ZBASE32 for x in ezbase32[p:]):
-            prefixlen = p
-            break
-    if prefixlen is None:
-        return (None, None)
-    datalen = (len(ezbase32) - prefixlen - 6) * 5 // 8
-    if datalen < 0 or datalen > 36 or (datalen * 8 + 4) // 5 != len(ezbase32) - 6 - prefixlen:
-        return (None, None)
-    u5checksum = [ZBASE32.find(x) for x in ezbase32[prefixlen:]]
-    checksum = bch(bch(bch(context, [1 + prefixlen]), bytearray(ezbase32[:prefixlen], "utf8")), u5checksum[:-6])
-    [checksum2] = convertbits(u5checksum[-6:], 5, 30, False)
-    if checksum != checksum2:
-        return (None, None)
-    return (ezbase32[:prefixlen], bytearray(convertbits(u5checksum[:-6], 5, 8, False)))
+    
+def baseencode(data):
+    n = 0
+    chk = [len(data)]
+    for s in data:
+        print("data: %r" % ','.join("%i" % x for x in s))
+        n += len(s)
+        chk.append(n % 32)
+    print("meta: %r" % chk)
+    for s in data:
+        chk.extend(s)
+    print("all: %r" % chk)
+    checksum = bch(chk) ^ 0x0a8ce26f
+    print("chk: %r" % chk)
+    return ('-'.join([''.join([ZBASE32[x] for x in s]) for s in data])) + ''.join([ZBASE32[x] for x in convertbits([checksum], 30, 5)])
 
 if __name__ == '__main__':
-    ff = [100,200,300,400,500,600,700,800,900,1000]
-    data = "hello"
-    for x in range(100000):
-        s = bytearray("hello" + str(x), "utf8")
-        print("s: %s" % s)
-        e = encode("btc:", 0, s)
-        print("e: %r" % e)
-        (prefix, d) = decode(0, e)
-        assert prefix == "btc:"
-        assert d == s
+    random.seed()
+    ff = [random.randrange(0,256) for x in xrange(32)]
+    print("odata: %s" % ''.join("%02x" % x for x in ff))
+    print("res: %r\n" % baseencode([[0,1],[0] + convertbits(ff, 8, 5)]))
