@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import hashlib
+
 def bech32_polymod(values):
   GEN = [0x53A0C81, 0x8F09902, 0x11E13204, 0x21526128, 0x12346650]
   chk = 1
@@ -21,22 +23,22 @@ def bech32_create_checksum(prefix, data):
   polymod = bech32_polymod(values + [0,0,0,0,0,0]) ^ 1
   return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
 
-CHARSET="0123456789bcdefghijkmnpqrstvwxyz"
+ZBASE32="ybndrfg8ejkmcpqxot1uwisza345h769"
 
 def bech32_encode(prefix, data):
   print("checksum: %r" % bech32_create_checksum(prefix, data))
   data += bech32_create_checksum(prefix, data)
-  return prefix + '-' + ''.join([CHARSET[d] for d in data])
+  return prefix + '-' + ''.join([ZBASE32[d] for d in data])
 
 def bech32_decode(s):
   s = s.lower()
   pos = s.rfind('-')
   if pos < 1 or pos > 40 or pos + 7 > len(s) or pos + 90 < len(s):
     return (None, None)
-  if not all(x in CHARSET for x in s[pos+1:]):
+  if not all(x in ZBASE32 for x in s[pos+1:]):
     return (None, None)
   prefix = s[:pos]
-  data = [CHARSET.find(x) for x in s[pos+1:]]
+  data = [ZBASE32.find(x) for x in s[pos+1:]]
   if not bech32_verify_checksum(prefix, data):
     return (None, None)
   return (prefix, data[:-6])
@@ -61,13 +63,13 @@ def convertbits(data, frombits, tobits, pad=True):
         return None
     return ret
 
-def segwit_addr_encode(witver, witprog):
+def segwit_addr_encode(prefix, witver, witprog):
   assert (witver >= 0 and witver <= 16)
-  return bech32_encode("bc", [witver] + convertbits(witprog, 8, 5))
+  return bech32_encode(prefix, [witver] + convertbits(witprog, 8, 5))
 
-def segwit_addr_decode(addr):
+def segwit_addr_decode(pref, addr):
   prefix, data = bech32_decode(addr)
-  if prefix != "bc":
+  if prefix != pref:
     return None
   decoded = convertbits(data[1:], 5, 8, False)
   if decoded is None or len(decoded) < 2 or len(decoded) > 40:
@@ -78,14 +80,36 @@ def segwit_addr_decode(addr):
     return None
   return (data[0], decoded)
 
-DATA = convertbits([0x7, 0x5, 0x1, 0xe, 0x7, 0x6, 0xe, 0x8, 0x1, 0x9, 0x9, 0x1, 0x9, 0x6, 0xd, 0x4, 0x5, 0x4, 0x9, 0x4, 0x1, 0xc, 0x4, 0x5, 0xd, 0x1, 0xb, 0x3, 0xa, 0x3, 0x2, 0x3, 0xf, 0x1, 0x4, 0x3, 0x3, 0xb, 0xd, 0x6], 4, 8)
+KEY="0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798".decode("hex")
 
-ENC = segwit_addr_encode(0, DATA)
-DEC = segwit_addr_decode(ENC)
+def hash160(d):
+  sha256 = hashlib.new("sha256")
+  ripemd160 = hashlib.new("ripemd160")
+  sha256.update(d)
+  ripemd160.update(sha256.digest())
+  return ripemd160.digest()
 
-print("DATA: %r" % DATA)
-print("ENC: %r" % ENC)
-print("DEC: %r" % (DEC,))
+def hash256(d):
+  sha256 = hashlib.new("sha256")
+  sha256.update(d)
+  return sha256.digest()
+
+KEYID = [ord(x) for x in hash160(KEY)]
+SCRIPTID = [ord(x) for x in hash256("21".decode("hex") + KEY + "ac".decode("hex"))]
+
+ENC1 = segwit_addr_encode("bc", 0, KEYID)
+ENC2 = segwit_addr_encode("bctest", 0, KEYID)
+ENC3 = segwit_addr_encode("bc", 0, SCRIPTID)
+ENC4 = segwit_addr_encode("bctest", 0, SCRIPTID)
+DEC1 = segwit_addr_decode("bc", ENC1)
+DEC2 = segwit_addr_decode("bctest", ENC2)
+
+print("ENC1: %r" % ENC1)
+print("ENC2: %r" % ENC2)
+print("ENC3: %r" % ENC3)
+print("ENC4: %r" % ENC4)
+print("DEC1: %r" % (DEC1,))
+print("DEC1: %r" % (DEC2,))
 
 #DATA=[10,11,32,0] + 
 #
