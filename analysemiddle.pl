@@ -30,7 +30,7 @@ my @stats;
 
 my @weights;
 
-for my $e (1..12) {
+for my $e (1..16) {
     my $total = 0;
     for my $l ($e..$LEN) {
         my $weight = ($e == 1 ? ($l == 1 ? 1 : 0) : comb($e - 2, $l - 2)) * ($LEN + 1 - $l);
@@ -42,7 +42,7 @@ sub process {
     for my $key (keys %code) {
         my @add = ($key);
         my $incomplete = 0;
-        for my $e (1..6) {
+        for my $e (1..8) {
             my $total = 0;
             my $avg = 0;
             my $max = 0;
@@ -70,10 +70,10 @@ sub process {
 my $key = "";
 while (<STDIN>) {
     chomp;
-    if ($_ =~ /\"(.*)\"\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)/) {
+    if ($_ =~ /\"(.*)\"\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*)\s*,\s*(.*),\s*(.*),\s*(.*)/) {
         my $newkey = $1;
         my $len = $3;
-        my $add = [undef, $4, $5, $6, $7, $8, $9];
+        my $add = [undef, $4, $5, $6, $7, $8, $9, $10, $11];
         if ($key ne $newkey) {
             process();
             $key = $newkey;
@@ -97,8 +97,8 @@ my $KEY = 0;
 
 for my $stat (@stats) {
     for my $k (0..1) {
-        for my $i (1..6) {
-            print $stat->[$i]->[$k], " ";
+        for my $i (1..8) {
+            print $stat->[$i]->[$k] * .93132257461547851562, " ";
         }
     }
     if ($stat->[0] =~ /0x(.*) 0x(.*) 0x(.*) 0x(.*) 0x(.*)/) {

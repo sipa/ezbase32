@@ -17,8 +17,8 @@
 
 namespace {
 
-#define CHECKSUMBITS 45
-#define CHECKSYMBOLS 9
+#define CHECKSUMBITS 30
+#define CHECKSYMBOLS 6
 
 #define BASEBITS (5*(CHECKSYMBOLS-1))
 
@@ -360,7 +360,7 @@ double Combination(int k, int n) {
 
 }
 
-#define COMPUTEDISTANCE 6
+#define COMPUTEDISTANCE 8
 
 int main(int argc, char** argv) {
     if (argc != 8) {
