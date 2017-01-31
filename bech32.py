@@ -118,3 +118,5 @@ print("DEC1: %r" % (DEC1,))
 print("DEC2: %r" % (DEC2,))
 print("DEC3: %r" % (DEC3,))
 print("DEC4: %r" % (DEC4,))
+
+print(bech32_encode("bc", [1,2,3]));

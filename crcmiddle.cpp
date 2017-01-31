@@ -360,7 +360,7 @@ double Combination(int k, int n) {
 
 }
 
-#define COMPUTEDISTANCE 8
+#define COMPUTEDISTANCE 10
 
 int main(int argc, char** argv) {
     if (argc != 8) {
