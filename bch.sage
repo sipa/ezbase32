@@ -103,6 +103,8 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 if (generator.degree()  == DEGREE):
                     cs.append(i-num+1)
 
+        all_generators = set()
+
         # Iterate over all alphas
         for alphalog in alphalogs:
             alpha = E_prim ** alphalog
@@ -124,6 +126,9 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 generator = 1
                 for minpoly in minpolyset:
                     generator *= minpoly
+                if generator in all_generators:
+                    continue
+                all_generators.add(generator)
                 table = []
                 for p in range(P):
                     j = B**p
