@@ -360,7 +360,7 @@ double Combination(int k, int n) {
 
 }
 
-#define COMPUTEDISTANCE 10
+#define COMPUTEDISTANCE 7
 
 int main(int argc, char** argv) {
     if (argc != 8) {
@@ -382,7 +382,7 @@ int main(int argc, char** argv) {
     CRCOutputs outputs(tbl, codelen);
 
     setbuf(stdout, NULL);
-    for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
+    for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
         endlist.push_back(EndMaps(i, maxtestlen, outputs));
     }
     for (int testlen = 1; testlen <= maxtestlen; testlen++) {
@@ -400,7 +400,7 @@ int main(int argc, char** argv) {
             for (int j = 1; j <= i; j++) {
                 if (j + i <= COMPUTEDISTANCE /*&& !computed[j + i]*/) {
                     fprintf(stderr, "Undetected HD%i...", i + j);
-                    uint64_t compoundfail = endlist[i - 1].FailuresCombined(beginlist[j - 1], testlen);
+                    uint64_t compoundfail = endlist[j - 1].FailuresCombined(beginlist[i - 1], testlen);
                     fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
                     output[j + i] = compoundfail;
                     computed[i] = true;

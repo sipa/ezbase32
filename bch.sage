@@ -117,7 +117,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
                 print "GEN {%s} F_mod=%r E_mod=%r E_primitive=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), alphalog, alpha.list(), c, minpolys)
-        break
+        #break
 
 
 def attempt(Q,M,N,DISTANCE,DEGREE,max):
@@ -199,12 +199,12 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
 if False:
     Q=32
     Ns={}
-    for M in range(1,10):
+    for M in range(1,5):
       for d in (Q**M-1).divisors():
-        if d > 100 and d < 10000 and d not in Ns:
+        if d > 80 and d < 100 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,7,11,1)
+      attempt(Q,M,N,5,6,1)
 else:
-    attempt_exhaust(2,5,2,341,7,11)
+    attempt_exhaust(2,5,2,93,5,6)

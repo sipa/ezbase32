@@ -3,11 +3,11 @@
 import hashlib
 
 def bech32_polymod(values):
-  GEN = [0x53A0C81, 0x8F09902, 0x11E13204, 0x21526128, 0x12346650]
+  GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
   chk = 1
   for v in values:
     b = (chk >> 25)
-    chk = (chk & 0x1FFFFFF) << 5 ^ v
+    chk = (chk & 0x1ffffff) << 5 ^ v
     for i in range(5):
       chk ^= GEN[i] if ((b >> i) & 1) else 0
   return chk
