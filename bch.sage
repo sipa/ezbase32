@@ -110,7 +110,6 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             alpha = E_prim ** alphalog
             # Iterate over all c values
             for c in cs:
-                c1 = alpha^c
                 roots = [ZP(c + i) * ZP(alphalog) for i in range(num)]
                 minpolyset=set()
                 minpolys=[]
@@ -119,16 +118,13 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     if root in MP_cache:
                         minpoly = MP_cache[root]
                     else:
-                        minpoly = (c1*alpha^i).minpoly()
+                        minpoly = (E_prim ** root).minpoly()
                         MP_cache[root] = minpoly
                     minpolyset.add(minpoly)
                     minpolys.append(minpoly)
                 generator = 1
                 for minpoly in minpolyset:
                     generator *= minpoly
-                if generator in all_generators:
-                    continue
-                all_generators.add(generator)
                 table = []
                 for p in range(P):
                     j = B**p
@@ -136,7 +132,10 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     for p in range(generator.degree()):
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
-                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alphalog, alpha.list(), c, minpolys)
+                if table[0] in all_generators:
+                    continue
+                all_generators.add(table[0])
+                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alpha.list(), c, minpolys)
         #break
 
 
