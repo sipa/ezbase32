@@ -61,6 +61,8 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         if poly.is_primitive():
             F_moduli.append(poly)
 
+    MP_cache = dict()
+
     # Iterative over all base fields
     for F_modulus in F_moduli:
         F.<f> = GF(Q, repr='int', modulus=F_modulus)
@@ -107,8 +109,21 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             # Iterate over all c values
             for c in cs:
                 c1 = alpha^c
-                minpolys = [(c1*alpha^i).minpoly() for i in range(num)]
-                generator = lcm(minpolys)
+                roots = [ZP(c + i) * ZP(alphalog) for i in range(num)]
+                minpolyset=set()
+                minpolys=[]
+                for i in range(num):
+                    root = ZP(c + i) * ZP(alphalog)
+                    if root in MP_cache:
+                        minpoly = MP_cache[root]
+                    else:
+                        minpoly = (c1*alpha^i).minpoly()
+                        MP_cache[root] = minpoly
+                    minpolyset.add(minpoly)
+                    minpolys.append(minpoly)
+                generator = 1
+                for minpoly in minpolyset:
+                    generator *= minpoly
                 table = []
                 for p in range(P):
                     j = B**p
@@ -116,7 +131,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     for p in range(generator.degree()):
                         n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
                     table.append(n)
-                print "GEN {%s} F_mod=%r E_mod=%r E_primitive=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), alphalog, alpha.list(), c, minpolys)
+                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alphalog=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alphalog, alpha.list(), c, minpolys)
         #break
 
 
@@ -207,4 +222,4 @@ if False:
       M = Ns[N]
       attempt(Q,M,N,5,6,1)
 else:
-    attempt_exhaust(2,5,2,93,5,6)
+    attempt_exhaust(2,5,2,1023,4,6)
