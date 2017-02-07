@@ -26,6 +26,7 @@ namespace {
 #define BASEBITS (5*(CHECKSYMBOLS-1))
 
 #define REQUIRE_ZEROES 1
+//#define REQUIRE_ZEROES 0
 
 /* BCH codes over GF(2^5)
  */
@@ -313,17 +314,23 @@ struct BeginMaps {
 };
 
 struct EndMaps {
+    int errors;
+    int curlen;
+    const CRCOutputs& outputs;
     std::vector<MutableIncMap> endmaps;
 
-    EndMaps(int errors, int len, const CRCOutputs& outputs) {
+    EndMaps(int errors_, const CRCOutputs& outputs_) : errors(errors_), outputs(outputs_) {}
+
+    void Extend(int len) {
         uint64_t count2 = 0;
 #ifndef REQUIRE_ZEROES
         fprintf(stderr, "Building end maps for %i errors...", errors);
 #endif
         endmaps.resize(len);
-        for (int i = 0; i < len; i++) {
-            BuildMap(errors, 0, i, endmaps[i], outputs, false);
-            count2 += endmaps[i].GetTotal();
+        while (curlen < len) {
+            BuildMap(errors, 0, curlen, endmaps[curlen], outputs, false);
+            count2 += endmaps[curlen].GetTotal();
+            curlen++;
         }
 #ifndef REQUIRE_ZEROES
         fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)(count2));
@@ -376,7 +383,7 @@ double Combination(int k, int n) {
 #define COMPUTEDISTANCE 5
 
 
-int analyse(uint64_t code, int codelen, int maxtestlen) {
+int analyse(uint64_t code, int codelen, int maxtestlen, uint64_t num) {
     uint64_t tbl[5] = {code,0,0,0,0};
     for (int i = 1; i < 5; i++) {
         for (int j = 0; j < CHECKSYMBOLS; j++) {
@@ -388,9 +395,12 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
     CRCOutputs outputs(tbl, codelen);
     setbuf(stdout, NULL);
     for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
-        endlist.push_back(EndMaps(i, maxtestlen, outputs));
+        endlist.push_back(EndMaps(i, outputs));
     }
     for (int testlen = 1; testlen <= maxtestlen; testlen++) {
+        for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
+            endlist[i - 1].Extend(testlen);
+        }
         uint64_t output[COMPUTEDISTANCE + 1] = {0};
         bool computed[COMPUTEDISTANCE + 1] = {false};
         std::vector<BeginMaps> beginlist;
@@ -398,7 +408,7 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
             beginlist.push_back(BeginMaps(i, testlen, outputs));
             if (!computed[i]) {
                 uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
-#ifdef REQUIRE_ZEROES
+#if REQUIRE_ZEROES
                 if (directfail) return 0;
 #else
                 fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
@@ -409,7 +419,7 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
             for (int j = 1; j <= i; j++) {
                 if (j + i <= COMPUTEDISTANCE && !computed[j + i]) {
                     uint64_t compoundfail = endlist[j - 1].FailuresCombined(beginlist[i - 1], testlen);
-#ifdef REQUIRE_ZEROES
+#if REQUIRE_ZEROES
                     if (compoundfail) return 0;
 #else
                     fprintf(stderr, "Undetected HD%i...", i + j);
@@ -420,8 +430,9 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
                 }
             }
         }
-#ifdef REQUIRE_ZEROES
+#if REQUIRE_ZEROES
         if (testlen < maxtestlen) continue;
+        printf("%llu ", (unsigned long long)num);
 #endif
         printf("\"0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\",%i,%i", (unsigned long)tbl[0], (unsigned long)tbl[1], (unsigned long)tbl[2], (unsigned long)tbl[3], (unsigned long)tbl[4], codelen, testlen);
         for (int i = 1; i <= COMPUTEDISTANCE; i++) {
@@ -436,6 +447,7 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
     return 1;
 }
 
+/*
 int main(int argc, char** argv) {
     if (argc != 4) {
         fprintf(stderr, "Usage: %s codelen testlen gen\n", argv[0]);
@@ -448,6 +460,23 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: generator %llx is outside of range\n", r);
         return(1);
     }
-    analyse(r, codelen, maxtestlen);
+    analyse(r, codelen, maxtestlen, 0);
+    return 0;
+}
+*/
+
+int main(int argc, char** argv) {
+    srandom(time(NULL));
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s codelen testlen\n", argv[0]);
+        return(1);
+    }
+    int codelen = strtoul(argv[1], NULL, 0);
+    int maxtestlen = strtoul(argv[2], NULL, 0);
+    uint64_t num = 0;
+    while (1) {
+        uint64_t code = random() & ((1ULL << CHECKSUMBITS) - 1);
+        analyse(code, codelen, maxtestlen, num++);
+    }
     return 0;
 }
