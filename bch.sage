@@ -135,8 +135,8 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 if table[0] in all_generators:
                     continue
                 all_generators.add(table[0])
-                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alpha=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alpha.list(), c, minpolys)
-        #break
+                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alpha=%r alphalog=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alpha.list(), alphalog, c, minpolys)
+        break
 
 
 def attempt(Q,M,N,DISTANCE,DEGREE,max):

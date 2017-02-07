@@ -17,10 +17,15 @@
 
 namespace {
 
-#define CHECKSUMBITS 30
+#define FIELD 9
+
 #define CHECKSYMBOLS 6
 
+#define CHECKSUMBITS (CHECKSYMBOLS * 5)
+
 #define BASEBITS (5*(CHECKSYMBOLS-1))
+
+#define REQUIRE_ZEROES 1
 
 /* BCH codes over GF(2^5)
  */
@@ -286,13 +291,17 @@ struct BeginMaps {
 
     BeginMaps(int errors, int len, const CRCOutputs& outputs) {
         uint64_t count1 = 0;
+#ifndef REQUIRE_ZEROES
         fprintf(stderr, "Building begin maps for %i errors...", errors);
+#endif
         beginmaps.resize(len);
         for (int i = 0; i < len; i++) {
             BuildMap(errors, i, len - 1, beginmaps[i], outputs, true);
             count1 += beginmaps[i].GetTotal();
         }
+#ifndef REQUIRE_ZEROES
         fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)count1);
+#endif
     }
 
     uint64_t Failures(int len) {
@@ -308,13 +317,17 @@ struct EndMaps {
 
     EndMaps(int errors, int len, const CRCOutputs& outputs) {
         uint64_t count2 = 0;
+#ifndef REQUIRE_ZEROES
         fprintf(stderr, "Building end maps for %i errors...", errors);
+#endif
         endmaps.resize(len);
         for (int i = 0; i < len; i++) {
             BuildMap(errors, 0, i, endmaps[i], outputs, false);
             count2 += endmaps[i].GetTotal();
         }
+#ifndef REQUIRE_ZEROES
         fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)(count2));
+#endif
     }
 
     uint64_t FailuresCombined(const BeginMaps& other, int len) {
@@ -360,27 +373,19 @@ double Combination(int k, int n) {
 
 }
 
-#define COMPUTEDISTANCE 7
+#define COMPUTEDISTANCE 5
 
-int main(int argc, char** argv) {
-    if (argc != 8) {
-        fprintf(stderr, "Usage: %s codelen testlen v1 v2 v4 v8 v16\n", argv[0]);
-        return(1);
-    }
-    int codelen = strtoul(argv[1], NULL, 0);
-    int maxtestlen = strtoul(argv[2], NULL, 0);
-    uint64_t tbl[5];
-    for (int i = 0; i < 5; i++) {
-        unsigned long long r = strtoul(argv[i + 3], NULL, 0);
-        if (r >> CHECKSUMBITS) {
-            fprintf(stderr, "Error: table entry %i is outside of range\n", i);
-            return(1);
+
+int analyse(uint64_t code, int codelen, int maxtestlen) {
+    uint64_t tbl[5] = {code,0,0,0,0};
+    for (int i = 1; i < 5; i++) {
+        for (int j = 0; j < CHECKSYMBOLS; j++) {
+            unsigned int prev = (tbl[i - 1] >> (5 * j)) & 0x1f;
+            tbl[i] |= ((uint64_t)(((prev & 0xf) << 1) ^ (FIELD * (prev >> 4)))) << (5 * j);
         }
-        tbl[i] = r;
     }
     std::vector<EndMaps> endlist;
     CRCOutputs outputs(tbl, codelen);
-
     setbuf(stdout, NULL);
     for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
         endlist.push_back(EndMaps(i, maxtestlen, outputs));
@@ -393,20 +398,31 @@ int main(int argc, char** argv) {
             beginlist.push_back(BeginMaps(i, testlen, outputs));
             if (!computed[i]) {
                 uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
+#ifdef REQUIRE_ZEROES
+                if (directfail) return 0;
+#else
                 fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
+#endif
                 output[i] = directfail;
                 computed[i] = true;
             }
             for (int j = 1; j <= i; j++) {
-                if (j + i <= COMPUTEDISTANCE /*&& !computed[j + i]*/) {
-                    fprintf(stderr, "Undetected HD%i...", i + j);
+                if (j + i <= COMPUTEDISTANCE && !computed[j + i]) {
                     uint64_t compoundfail = endlist[j - 1].FailuresCombined(beginlist[i - 1], testlen);
+#ifdef REQUIRE_ZEROES
+                    if (compoundfail) return 0;
+#else
+                    fprintf(stderr, "Undetected HD%i...", i + j);
                     fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
+#endif
                     output[j + i] = compoundfail;
                     computed[i] = true;
                 }
             }
         }
+#ifdef REQUIRE_ZEROES
+        if (testlen < maxtestlen) continue;
+#endif
         printf("\"0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\",%i,%i", (unsigned long)tbl[0], (unsigned long)tbl[1], (unsigned long)tbl[2], (unsigned long)tbl[3], (unsigned long)tbl[4], codelen, testlen);
         for (int i = 1; i <= COMPUTEDISTANCE; i++) {
             if (output[i]) {
@@ -417,5 +433,21 @@ int main(int argc, char** argv) {
         }
         printf("\n");
     }
+    return 1;
+}
+
+int main(int argc, char** argv) {
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s codelen testlen gen\n", argv[0]);
+        return(1);
+    }
+    int codelen = strtoul(argv[1], NULL, 0);
+    int maxtestlen = strtoul(argv[2], NULL, 0);
+    unsigned long long r = strtoul(argv[3], NULL, 0);
+    if (r >> CHECKSUMBITS) {
+        fprintf(stderr, "Error: generator %llx is outside of range\n", r);
+        return(1);
+    }
+    analyse(r, codelen, maxtestlen);
     return 0;
 }
