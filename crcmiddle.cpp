@@ -17,13 +17,12 @@
 
 namespace {
 
-#define COMPUTEDISTANCE 5
 #define FIELD 9
 #define CHECKSYMBOLS 6
 #define CHECKSUMBITS (CHECKSYMBOLS * 5)
 #define BASEBITS (5*(CHECKSYMBOLS-1))
 //#define REQUIRE_ZEROES 1
-#define REQUIRE_ZEROES 0
+#define REQUIRE_ZEROES 1
 
 /* BCH codes over GF(2^5)
  */
@@ -357,7 +356,8 @@ long double Combination(int k, int n) {
 
 
 
-int analyse(uint64_t code, int codelen, int maxtestlen) {
+void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int errors) {
+    assert(errors <= 255);
     uint64_t tbl[5] = {code,0,0,0,0};
     for (int i = 1; i < 5; i++) {
         for (int j = 0; j < CHECKSYMBOLS; j++) {
@@ -365,37 +365,38 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
             tbl[i] |= ((uint64_t)(((prev & 0xf) << 1) ^ (FIELD * (prev >> 4)))) << (5 * j);
         }
     }
+    int printlen = 0;
     std::vector<EndMaps> endlist;
     CRCOutputs outputs(tbl, codelen);
     setbuf(stdout, NULL);
-    for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
+    for (int i = 1; i <= errors/2; i++) {
         endlist.push_back(EndMaps(i, outputs));
     }
 #if !REQUIRE_ZEROES
-    uint64_t output[LEN + 1][COMPUTEDISTANCE + 1] = {{0}};
+    uint64_t output[LEN + 1][256] = {{0}};
 #endif
     for (int testlen = 1; testlen <= maxtestlen; testlen++) {
-        for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
+        for (int i = 1; i <= errors/2; i++) {
             endlist[i - 1].Extend(testlen);
         }
-        bool computed[COMPUTEDISTANCE + 1] = {false};
+        bool computed[errors + 1] = {false};
         std::vector<BeginMaps> beginlist;
-        for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
+        for (int i = 1; i <= (errors+1)/2; i++) {
             beginlist.push_back(BeginMaps(i, testlen, outputs));
             if (!computed[i]) {
                 uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
 #if REQUIRE_ZEROES
-                if (directfail) return testlen - 1;
+                if (directfail) return;
 #else
                 output[testlen][i] = directfail;
 #endif
                 computed[i] = true;
             }
             for (int j = 1; j <= i; j++) {
-                if (j + i <= COMPUTEDISTANCE && !computed[j + i]) {
+                if (j + i <= errors && !computed[j + i]) {
                     uint64_t compoundfail = endlist[j - 1].FailuresCombined(beginlist[i - 1], testlen);
 #if REQUIRE_ZEROES
-                    if (compoundfail) return testlen - 1;
+                    if (compoundfail) return;
 #else
                     output[testlen][j + i] = compoundfail;
 #endif
@@ -403,23 +404,27 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
                 }
             }
         }
+        if (testlen >= mintestlen) {
+            while (printlen < testlen) {
+                ++printlen;
+                printf("0x%lx % 4i", (unsigned long)tbl[0], printlen);
 #if !REQUIRE_ZEROES
-        printf("0x%lx % 4i", (unsigned long)tbl[0], testlen);
-        for (int i = 1; i <= COMPUTEDISTANCE; i++) {
-            uint64_t total = 0;
-            for (int len = 1; len <= testlen; len++) {
-                total += output[len][i] * (testlen - len + 1);
-            }
-            if (i > testlen) {
-                printf("                   -");
-            } else {
-                printf(" % 19.15Lf", total / (Combination(i, testlen) * pow(MAXERR, i)) * (1ULL << CHECKSUMBITS));
+                for (int i = 1; i <= errors; i++) {
+                    uint64_t total = 0;
+                    for (int len = 1; len <= printlen; len++) {
+                        total += output[len][i] * (printlen - len + 1);
+                    }
+                    if (i > printlen) {
+                        printf("                   -");
+                    } else {
+                        printf(" % 19.15Lf", total / (Combination(i, testlen) * pow(MAXERR, i)) * (1ULL << CHECKSUMBITS));
+                    }
+                }
+#endif
+                printf("\n");
             }
         }
-        printf("\n");
-#endif
     }
-    return maxtestlen;
 }
 
 /*
@@ -441,13 +446,14 @@ int main(int argc, char** argv) {
 */
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s codelen mintestlen maxtestlen <generators\n", argv[0]);
+    if (argc != 5) {
+        fprintf(stderr, "Usage: %s errors codelen mintestlen maxtestlen <generators\n", argv[0]);
         return(1);
     }
-    int codelen = strtoul(argv[1], NULL, 0);
-    int mintestlen = strtoul(argv[2], NULL, 0);
-    int maxtestlen = strtoul(argv[3], NULL, 0);
+    int errors = strtoul(argv[1], NULL, 0);
+    int codelen = strtoul(argv[2], NULL, 0);
+    int mintestlen = strtoul(argv[3], NULL, 0);
+    int maxtestlen = strtoul(argv[4], NULL, 0);
     while (1) {
         char c[1024];
         if (!fgets(c, sizeof(c), stdin)) {
@@ -455,12 +461,7 @@ int main(int argc, char** argv) {
         }
         uint64_t r = strtoul(c, NULL, 0);
         assert((r >> CHECKSUMBITS) == 0);
-        int len = analyse(r, codelen, maxtestlen);
-#if REQUIRE_ZEROES
-        if (len >= mintestlen) {
-            printf("0x%lx %i\n", (unsigned long)r, len);
-        }
-#endif
+        analyse(r, codelen, mintestlen, maxtestlen, errors);
     }
     return 0;
 }
