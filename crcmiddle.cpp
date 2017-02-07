@@ -474,7 +474,6 @@ int main(int argc, char** argv) {
     int codelen = strtoul(argv[1], NULL, 0);
     int mintestlen = strtoul(argv[2], NULL, 0);
     int maxtestlen = strtoul(argv[3], NULL, 0);
-    uint64_t num = 0;
     while (1) {
         char c[1024];
         if (!fgets(c, sizeof(c), stdin)) {
@@ -484,9 +483,8 @@ int main(int argc, char** argv) {
         assert((r >> CHECKSUMBITS) == 0);
         int len = analyse(r, codelen, maxtestlen);
         if (len >= mintestlen) {
-            printf("%lu 0x%lx %i\n", num, (unsigned long)r, len);
+            printf("%i 0x%lx\n", len, (unsigned long)r);
         }
-        ++num;
     }
     return 0;
 }
