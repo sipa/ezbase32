@@ -17,16 +17,13 @@
 
 namespace {
 
+#define COMPUTEDISTANCE 5
 #define FIELD 9
-
 #define CHECKSYMBOLS 6
-
 #define CHECKSUMBITS (CHECKSYMBOLS * 5)
-
 #define BASEBITS (5*(CHECKSYMBOLS-1))
-
-#define REQUIRE_ZEROES 1
-//#define REQUIRE_ZEROES 0
+//#define REQUIRE_ZEROES 1
+#define REQUIRE_ZEROES 0
 
 /* BCH codes over GF(2^5)
  */
@@ -98,7 +95,6 @@ class IncMap {
                 break;
             }
         } while (true);
-//        printf("[R %lu]", (unsigned long)ret);
         return ret;
     }
 
@@ -190,11 +186,6 @@ public:
             }
         }
         data.push_back(0);
-/*        auto it = begin();
-        while (it.Valid()) {
-            printf("[MAP %lu:%lu] ", (unsigned long)it.GetKey(), (unsigned long)it.GetValue());
-            it.Increment();
-        }*/
     }
 
 protected:
@@ -250,11 +241,7 @@ uint64_t SimpleRecurse(uint64_t accum, int errors, int minpos, const CRCOutputs&
 
 void Recurse(uint64_t accum, int errors, int minpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs) {
     if (errors == 0) {
-//        printf("[ADD %lu]", (unsigned long)accum);
         data.Increment(accum);
-        if ((data.GetTotal() & 0xFFFFFF) == 0) {
-            fprintf(stderr, ".");
-        }
         return;
     }
     for (int pos = minpos; pos < endpos - errors + 1; pos++) {
@@ -266,11 +253,9 @@ void Recurse(uint64_t accum, int errors, int minpos, int endpos, MutableIncMap& 
 
 /* Always sets positions beginpos and endpos */
 void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const CRCOutputs& outputs, bool reduce) {
-//    [5~printf("[begin %i in %i..%i] ", errors, beginpos, endpos);
     if (errors == 1) {
         if (beginpos == endpos) {
             for (int err = 1; err <= (reduce ? 1 : MAXERR); err++) {
-//                printf("[ADD %lu]", (unsigned long)outputs.val[endpos][err - 1]);
                 data.Increment(outputs.val[endpos][err - 1]);
             }
         }
@@ -283,7 +268,6 @@ void BuildMap(int errors, int beginpos, int endpos, MutableIncMap& data, const C
             }
         }
     }
-//    printf("[end %i in %i..%i] ", errors, beginpos, endpos);
     data.Prepare();
 }
 
@@ -292,17 +276,11 @@ struct BeginMaps {
 
     BeginMaps(int errors, int len, const CRCOutputs& outputs) {
         uint64_t count1 = 0;
-#ifndef REQUIRE_ZEROES
-        fprintf(stderr, "Building begin maps for %i errors...", errors);
-#endif
         beginmaps.resize(len);
         for (int i = 0; i < len; i++) {
             BuildMap(errors, i, len - 1, beginmaps[i], outputs, true);
             count1 += beginmaps[i].GetTotal();
         }
-#ifndef REQUIRE_ZEROES
-        fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)count1);
-#endif
     }
 
     uint64_t Failures(int len) {
@@ -323,23 +301,16 @@ struct EndMaps {
 
     void Extend(int len) {
         uint64_t count2 = 0;
-#ifndef REQUIRE_ZEROES
-        fprintf(stderr, "Building end maps for %i errors...", errors);
-#endif
         endmaps.resize(len);
         while (curlen < len) {
             BuildMap(errors, 0, curlen, endmaps[curlen], outputs, false);
             count2 += endmaps[curlen].GetTotal();
             curlen++;
         }
-#if !REQUIRE_ZEROES
-        fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)(count2));
-#endif
     }
 
     uint64_t FailuresCombined(const BeginMaps& other, int len) {
         uint64_t ret = 0;
-        uint64_t iter = 0;
         for (int i = 0; i < len - 1; i++) {
             const IncMap& endmap = endmaps[i];
             for (int j = i + 1; j < len; j++) {
@@ -347,7 +318,6 @@ struct EndMaps {
                 IncMap::iterator eit = endmap.begin();
                 IncMap::iterator bit = beginmap.begin();
                 while (eit.Valid() && bit.Valid()) {
-                    if (((++iter) & 0xFFFFFFF) == 0) fprintf(stderr, ".");
                     if (eit.GetKey() < bit.GetKey()) {
                         eit.Increment();
                         continue;
@@ -372,9 +342,9 @@ struct EndMaps {
 };
 
 #if !REQUIRE_ZEROES
-double Combination(int k, int n) {
-    double num = 1.0;
-    double den = 1.0;
+long double Combination(int k, int n) {
+    long double num = 1.0;
+    long double den = 1.0;
     if (n - k < k) k = n - k;
     for (int i = 1; i <= k; i++) {
         num *= (n - i + 1);
@@ -385,7 +355,6 @@ double Combination(int k, int n) {
 #endif
 }
 
-#define COMPUTEDISTANCE 4
 
 
 int analyse(uint64_t code, int codelen, int maxtestlen) {
@@ -402,13 +371,13 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
     for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
         endlist.push_back(EndMaps(i, outputs));
     }
+#if !REQUIRE_ZEROES
+    uint64_t output[LEN + 1][COMPUTEDISTANCE + 1] = {{0}};
+#endif
     for (int testlen = 1; testlen <= maxtestlen; testlen++) {
         for (int i = 1; i <= (COMPUTEDISTANCE)/2; i++) {
             endlist[i - 1].Extend(testlen);
         }
-#if !REQUIRE_ZEROES
-        uint64_t output[COMPUTEDISTANCE + 1] = {0};
-#endif
         bool computed[COMPUTEDISTANCE + 1] = {false};
         std::vector<BeginMaps> beginlist;
         for (int i = 1; i <= (COMPUTEDISTANCE+1)/2; i++) {
@@ -418,8 +387,7 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
 #if REQUIRE_ZEROES
                 if (directfail) return testlen - 1;
 #else
-                fprintf(stderr, "Undetected HD%i... %llu\n", i, (unsigned long long)directfail);
-                output[i] = directfail;
+                output[testlen][i] = directfail;
 #endif
                 computed[i] = true;
             }
@@ -429,21 +397,23 @@ int analyse(uint64_t code, int codelen, int maxtestlen) {
 #if REQUIRE_ZEROES
                     if (compoundfail) return testlen - 1;
 #else
-                    fprintf(stderr, "Undetected HD%i...", i + j);
-                    fprintf(stderr, " %llu\n", (unsigned long long)compoundfail);
-                    output[j + i] = compoundfail;
+                    output[testlen][j + i] = compoundfail;
 #endif
                     computed[i] = true;
                 }
             }
         }
 #if !REQUIRE_ZEROES
-        printf("\"0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\",%i,%i", (unsigned long)tbl[0], (unsigned long)tbl[1], (unsigned long)tbl[2], (unsigned long)tbl[3], (unsigned long)tbl[4], codelen, testlen);
+        printf("0x%lx % 4i", (unsigned long)tbl[0], testlen);
         for (int i = 1; i <= COMPUTEDISTANCE; i++) {
-            if (output[i]) {
-                printf(",%.16g", output[i] / (Combination(i - 2, testlen - 2) * pow(MAXERR, i)) * 1073741824);
+            uint64_t total = 0;
+            for (int len = 1; len <= testlen; len++) {
+                total += output[len][i] * (testlen - len + 1);
+            }
+            if (i > testlen) {
+                printf("                   -");
             } else {
-                printf(",0");
+                printf(" % 19.15Lf", total / (Combination(i, testlen) * pow(MAXERR, i)) * (1ULL << CHECKSUMBITS));
             }
         }
         printf("\n");
@@ -486,9 +456,11 @@ int main(int argc, char** argv) {
         uint64_t r = strtoul(c, NULL, 0);
         assert((r >> CHECKSUMBITS) == 0);
         int len = analyse(r, codelen, maxtestlen);
+#if REQUIRE_ZEROES
         if (len >= mintestlen) {
-            printf("%i 0x%lx\n", len, (unsigned long)r);
+            printf("0x%lx %i\n", (unsigned long)r, len);
         }
+#endif
     }
     return 0;
 }
