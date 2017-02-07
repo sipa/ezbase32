@@ -22,7 +22,7 @@ namespace {
 #define CHECKSUMBITS (CHECKSYMBOLS * 5)
 #define BASEBITS (5*(CHECKSYMBOLS-1))
 //#define REQUIRE_ZEROES 1
-#define REQUIRE_ZEROES 1
+#define REQUIRE_ZEROES 0
 
 /* BCH codes over GF(2^5)
  */
@@ -446,14 +446,13 @@ int main(int argc, char** argv) {
 */
 
 int main(int argc, char** argv) {
-    if (argc != 5) {
-        fprintf(stderr, "Usage: %s errors codelen mintestlen maxtestlen <generators\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s errors mintestlen maxtestlen <generators\n", argv[0]);
         return(1);
     }
     int errors = strtoul(argv[1], NULL, 0);
-    int codelen = strtoul(argv[2], NULL, 0);
-    int mintestlen = strtoul(argv[3], NULL, 0);
-    int maxtestlen = strtoul(argv[4], NULL, 0);
+    int mintestlen = strtoul(argv[2], NULL, 0);
+    int maxtestlen = strtoul(argv[3], NULL, 0);
     while (1) {
         char c[1024];
         if (!fgets(c, sizeof(c), stdin)) {
@@ -461,7 +460,7 @@ int main(int argc, char** argv) {
         }
         uint64_t r = strtoul(c, NULL, 0);
         assert((r >> CHECKSUMBITS) == 0);
-        analyse(r, codelen, mintestlen, maxtestlen, errors);
+        analyse(r, maxtestlen, mintestlen, maxtestlen, errors);
     }
     return 0;
 }
