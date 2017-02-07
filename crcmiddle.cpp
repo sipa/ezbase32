@@ -332,7 +332,7 @@ struct EndMaps {
             count2 += endmaps[curlen].GetTotal();
             curlen++;
         }
-#ifndef REQUIRE_ZEROES
+#if !REQUIRE_ZEROES
         fprintf(stderr, "done (%llu combinations)\n", (unsigned long long)(count2));
 #endif
     }
@@ -357,9 +357,13 @@ struct EndMaps {
                         continue;
                     }
                     assert(eit.GetKey() == bit.GetKey());
+#if REQUIRE_ZEROES
+                    return 1;
+#else
                     ret += ((uint64_t)bit.GetValue()) * eit.GetValue();
                     bit.Increment();
                     eit.Increment();
+#endif
                 }
             }
         }
@@ -381,7 +385,7 @@ double Combination(int k, int n) {
 #endif
 }
 
-#define COMPUTEDISTANCE 5
+#define COMPUTEDISTANCE 4
 
 
 int analyse(uint64_t code, int codelen, int maxtestlen) {
