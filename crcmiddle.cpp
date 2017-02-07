@@ -466,7 +466,6 @@ int main(int argc, char** argv) {
 */
 
 int main(int argc, char** argv) {
-    srandom(time(NULL));
     if (argc != 3) {
         fprintf(stderr, "Usage: %s codelen testlen\n", argv[0]);
         return(1);
@@ -475,8 +474,13 @@ int main(int argc, char** argv) {
     int maxtestlen = strtoul(argv[2], NULL, 0);
     uint64_t num = 0;
     while (1) {
-        uint64_t code = random() & ((1ULL << CHECKSUMBITS) - 1);
-        analyse(code, codelen, maxtestlen, num++);
+        char c[1024];
+        if (!fgets(c, sizeof(c), stdin)) {
+            break;
+        }
+        uint64_t r = strtoul(c, NULL, 0);
+        assert((r >> CHECKSUMBITS) == 0);
+        analyse(r, codelen, maxtestlen, num++);
     }
     return 0;
 }
