@@ -484,8 +484,9 @@ int main(int argc, char** argv) {
         assert((r >> CHECKSUMBITS) == 0);
         int len = analyse(r, codelen, maxtestlen);
         if (len >= mintestlen) {
-            printf("%lu 0x%lx %i\n", num++, (unsigned long)r, len);
+            printf("%lu 0x%lx %i\n", num, (unsigned long)r, len);
         }
+        ++num;
     }
     return 0;
 }
