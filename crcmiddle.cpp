@@ -527,7 +527,7 @@ int main(int argc, char** argv) {
     int errors = strtoul(argv[2], NULL, 0);
     int mintestlen = strtoul(argv[3], NULL, 0);
     int maxtestlen = strtoul(argv[4], NULL, 0);
-    for (int i = 4; i < argc; i++) {
+    for (int i = 5; i < argc; i++) {
         Constraint c;
         if (!ParseConstraint(argv[i], c)) {
             fprintf(stderr, "Invalid constraint %s: parse error\n", argv[i]);
