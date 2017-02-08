@@ -21,8 +21,8 @@ namespace {
 #define CHECKSYMBOLS 6
 #define CHECKSUMBITS (CHECKSYMBOLS * 5)
 #define BASEBITS (5*(CHECKSYMBOLS-1))
-//#define REQUIRE_ZEROES 1
 #define REQUIRE_ZEROES 0
+//#define REQUIRE_ZEROES 0
 
 /* BCH codes over GF(2^5)
  */
@@ -340,7 +340,6 @@ struct EndMaps {
     }
 };
 
-#if !REQUIRE_ZEROES
 long double Combination(int k, int n) {
     long double num = 1.0;
     long double den = 1.0;
@@ -351,12 +350,65 @@ long double Combination(int k, int n) {
     }
     return num / den;
 }
-#endif
 }
 
 
+struct Constraint {
+    int minerr;
+    int maxerr;
+    int minlen;
+    int maxlen;
+    double maxchance;
+};
 
-void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int errors) {
+bool ParseConstraint(const char* str, Constraint& c) {
+    char* ptr;
+    unsigned long minerr = strtoul(str, &ptr, 0);
+    unsigned long maxerr = minerr;
+    if (ptr == str) return false;
+    str = ptr;
+    if (*str == '-') {
+        ++str;
+        maxerr = strtoul(str, &ptr, 0);
+        if (ptr == str) return false;
+        str = ptr;
+    }
+    if (*str != ',') return false;
+    ++str;
+    unsigned long minlen = strtoul(str, &ptr, 0);
+    unsigned long maxlen = minlen;
+    if (ptr == str) return false;
+    str = ptr;
+    if (*str == '-') {
+        ++str;
+        maxlen = strtoul(str, &ptr, 0);
+        if (ptr == str) return false;
+        str = ptr;
+    }
+    if (*str != ',') return false;
+    ++str;
+    double maxchance = strtod(str, &ptr);
+    if (ptr == str) return false;
+    str = ptr;
+    if (*ptr != 0) return false;
+    c.minerr = minerr;
+    c.maxerr = maxerr;
+    c.minlen = minlen;
+    c.maxlen = maxlen;
+    c.maxchance = maxchance;
+    return true;
+}
+
+bool CheckConstraint(const std::vector<Constraint>& cons, int err, int len, double chance, bool nonzero) {
+    for (const auto& c : cons) {
+        if (err < c.minerr || err > c.maxerr || len < c.minlen || len > c.maxlen) continue;
+        if (chance > c.maxchance) return false;
+        if (nonzero && c.maxchance == 0) return false;
+    }
+    return true;
+}
+
+void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int errors, const std::vector<Constraint>& cons) {
     assert(errors <= 255);
     uint64_t tbl[5] = {code,0,0,0,0};
     for (int i = 1; i < 5; i++) {
@@ -372,8 +424,9 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
     for (int i = 1; i <= errors/2; i++) {
         endlist.push_back(EndMaps(i, outputs));
     }
-#if !REQUIRE_ZEROES
     uint64_t output[LEN + 1][256] = {{0}};
+#if !REQUIRE_ZEROES
+    double results[LEN + 1][256] = {{0}};
 #endif
     for (int testlen = 1; testlen <= maxtestlen; testlen++) {
         for (int i = 1; i <= errors/2; i++) {
@@ -385,24 +438,29 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
             beginlist.push_back(BeginMaps(i, testlen, outputs));
             if (!computed[i]) {
                 uint64_t directfail = (unsigned long long)beginlist[i - 1].Failures(testlen);
-#if REQUIRE_ZEROES
-                if (directfail) return;
-#else
+                if (directfail && !CheckConstraint(cons, i, testlen, 0, true)) return;
                 output[testlen][i] = directfail;
-#endif
                 computed[i] = true;
             }
             for (int j = 1; j <= i; j++) {
                 if (j + i <= errors && !computed[j + i]) {
                     uint64_t compoundfail = endlist[j - 1].FailuresCombined(beginlist[i - 1], testlen);
-#if REQUIRE_ZEROES
-                    if (compoundfail) return;
-#else
+                    if (compoundfail && !CheckConstraint(cons, i + j, testlen, 0, true)) return;
                     output[testlen][j + i] = compoundfail;
-#endif
                     computed[i] = true;
                 }
             }
+        }
+        for (int i = 1; i <= errors; i++) {
+            uint64_t total = 0;
+            for (int len = 1; len <= testlen; len++) {
+                total += output[len][i] * (testlen - len + 1);
+            }
+            long double chs = total / (Combination(i, testlen) * pow(MAXERR, i)) * (1ULL << CHECKSUMBITS);
+            if (!CheckConstraint(cons, i, testlen, chs, false)) return;
+#if !REQUIRE_ZEROES
+            results[testlen][i] = chs;
+#endif
         }
         if (testlen >= mintestlen) {
             while (printlen < testlen) {
@@ -410,14 +468,10 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
                 printf("0x%lx % 4i", (unsigned long)tbl[0], printlen);
 #if !REQUIRE_ZEROES
                 for (int i = 1; i <= errors; i++) {
-                    uint64_t total = 0;
-                    for (int len = 1; len <= printlen; len++) {
-                        total += output[len][i] * (printlen - len + 1);
-                    }
                     if (i > printlen) {
                         printf("                   -");
                     } else {
-                        printf(" % 19.15Lf", total / (Combination(i, testlen) * pow(MAXERR, i)) * (1ULL << CHECKSUMBITS));
+                        printf(" % 19.15f", results[printlen][i]);
                     }
                 }
 #endif
@@ -446,13 +500,44 @@ int main(int argc, char** argv) {
 */
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s errors mintestlen maxtestlen <generators\n", argv[0]);
+    setbuf(stdout, NULL);
+    std::vector<Constraint> cons;
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s errors mintestlen maxtestlen [minerr[-maxerr],minlen[-maxlen],maxchance]... <generators\n", argv[0]);
         return(1);
     }
     int errors = strtoul(argv[1], NULL, 0);
     int mintestlen = strtoul(argv[2], NULL, 0);
     int maxtestlen = strtoul(argv[3], NULL, 0);
+    for (int i = 4; i < argc; i++) {
+        Constraint c;
+        if (!ParseConstraint(argv[i], c)) {
+            fprintf(stderr, "Invalid constraint %s: parse error\n", argv[i]);
+            return 1;
+        }
+        if (c.minerr > c.maxerr) {
+            fprintf(stderr, "Invalid constraint %s: minerr > maxerr\n", argv[i]);
+            return 1;
+        }
+        if (c.minerr < 1 || c.maxerr > 255) {
+            fprintf(stderr, "Invalid constraint %s: errors out of range\n", argv[i]);
+            return 1;
+        }
+        if (c.minlen > c.maxlen) {
+            fprintf(stderr, "Invalid constraint %s: minlen > maxlen\n", argv[i]);
+            return 1;
+        }
+        if (c.minlen < 1 || c.maxlen > 65535) {
+            fprintf(stderr, "Invalid constraint %s: length out of range\n", argv[i]);
+            return 1;
+        }
+        if (c.maxchance < 0 || c.maxchance > 1000000000) {
+            fprintf(stderr, "Invalid constraint %s: chance out of range\n", argv[i]);
+            return 1;
+        }
+//        printf("Add constraint: err=%i-%i len=%i-%i maxch=%g\n", c.minerr, c.maxerr, c.minlen, c.maxlen, c.maxchance);
+        cons.emplace_back(c);
+    }
     while (1) {
         char c[1024];
         if (!fgets(c, sizeof(c), stdin)) {
@@ -460,7 +545,7 @@ int main(int argc, char** argv) {
         }
         uint64_t r = strtoul(c, NULL, 0);
         assert((r >> CHECKSUMBITS) == 0);
-        analyse(r, maxtestlen, mintestlen, maxtestlen, errors);
+        analyse(r, maxtestlen, mintestlen, maxtestlen, errors, cons);
     }
     return 0;
 }
