@@ -559,7 +559,6 @@ int main(int argc, char** argv) {
     std::vector<std::thread> threads;
     for (int i = 0; i < numthreads; i++) {
         std::thread new_thread(&runner, errors, mintestlen, maxtestlen, &cons);
-        new_thread.detach();
         threads.emplace_back(std::move(new_thread));
     }
     for (int i = 0; i < numthreads; i++) {
