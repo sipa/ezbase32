@@ -408,6 +408,9 @@ bool CheckConstraint(const std::vector<Constraint>& cons, int err, int len, doub
     return true;
 }
 
+static std::mutex input_lock;
+static std::mutex output_lock;
+
 void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int errors, const std::vector<Constraint>& cons) {
     assert(errors <= 255);
     uint64_t tbl[5] = {code,0,0,0,0};
@@ -417,7 +420,6 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
             tbl[i] |= ((uint64_t)(((prev & 0xf) << 1) ^ (FIELD * (prev >> 4)))) << (5 * j);
         }
     }
-    int printlen = 0;
     std::vector<EndMaps> endlist;
     CRCOutputs outputs(tbl, codelen);
     setbuf(stdout, NULL);
@@ -463,20 +465,18 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
 #endif
         }
         if (testlen >= mintestlen) {
-            while (printlen < testlen) {
-                ++printlen;
-                printf("0x%lx % 4i", (unsigned long)tbl[0], printlen);
+            std::unique_lock<std::mutex> lock(output_lock);
+            printf("0x%lx % 4i", (unsigned long)tbl[0], testlen);
 #if !REQUIRE_ZEROES
-                for (int i = 1; i <= errors; i++) {
-                    if (i > printlen) {
-                        printf("                   -");
-                    } else {
-                        printf(" % 19.15f", results[printlen][i]);
-                    }
+            for (int i = 1; i <= errors; i++) {
+                if (i > testlen) {
+                    printf("                   -");
+                } else {
+                    printf(" % 19.15f", results[testlen][i]);
                 }
-#endif
-                printf("\n");
             }
+#endif
+            printf("\n");
         }
     }
 }
@@ -499,16 +499,34 @@ int main(int argc, char** argv) {
 }
 */
 
+void runner(int errors, int mintestlen, int maxtestlen, const std::vector<Constraint>* cons) {
+    while (1) {
+        uint64_t r;
+        {
+            std::unique_lock<std::mutex> lock(input_lock);
+            char c[1024];
+            if (!fgets(c, sizeof(c), stdin)) {
+                break;
+            }
+            r = strtoul(c, NULL, 0);
+            assert((r >> CHECKSUMBITS) == 0);
+        }
+        analyse(r, maxtestlen, mintestlen, maxtestlen, errors, *cons);
+    }
+}
+
+
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
     std::vector<Constraint> cons;
-    if (argc < 4) {
-        fprintf(stderr, "Usage: %s errors mintestlen maxtestlen [minerr[-maxerr],minlen[-maxlen],maxchance]... <generators\n", argv[0]);
+    if (argc < 5) {
+        fprintf(stderr, "Usage: %s threads errors mintestlen maxtestlen [minerr[-maxerr],minlen[-maxlen],maxchance]... <generators\n", argv[0]);
         return(1);
     }
-    int errors = strtoul(argv[1], NULL, 0);
-    int mintestlen = strtoul(argv[2], NULL, 0);
-    int maxtestlen = strtoul(argv[3], NULL, 0);
+    int numthreads = strtoul(argv[1], NULL, 0);
+    int errors = strtoul(argv[2], NULL, 0);
+    int mintestlen = strtoul(argv[3], NULL, 0);
+    int maxtestlen = strtoul(argv[4], NULL, 0);
     for (int i = 4; i < argc; i++) {
         Constraint c;
         if (!ParseConstraint(argv[i], c)) {
@@ -538,14 +556,14 @@ int main(int argc, char** argv) {
 //        printf("Add constraint: err=%i-%i len=%i-%i maxch=%g\n", c.minerr, c.maxerr, c.minlen, c.maxlen, c.maxchance);
         cons.emplace_back(c);
     }
-    while (1) {
-        char c[1024];
-        if (!fgets(c, sizeof(c), stdin)) {
-            break;
-        }
-        uint64_t r = strtoul(c, NULL, 0);
-        assert((r >> CHECKSUMBITS) == 0);
-        analyse(r, maxtestlen, mintestlen, maxtestlen, errors, cons);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < numthreads; i++) {
+        std::thread new_thread(&runner, errors, mintestlen, maxtestlen, &cons);
+        new_thread.detach();
+        threads.emplace_back(std::move(new_thread));
+    }
+    for (int i = 0; i < numthreads; i++) {
+        threads[i].join();
     }
     return 0;
 }
