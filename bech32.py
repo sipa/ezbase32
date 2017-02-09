@@ -23,16 +23,16 @@ def bech32_create_checksum(hrp, data):
   polymod = bech32_polymod(values + [0,0,0,0,0,0]) ^ 1
   return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
 
-ZBASE32="ybndrfg8ejkmcpqxot1uwisza345h769"
+ZBASE32="jhz8nd6tki39om74bxrpfewucys1ga5q"
 
 def bech32_encode(hrp, data):
   combined = data + bech32_create_checksum(hrp, data)
-  return hrp + '-' + ''.join([ZBASE32[d] for d in combined])
+  return hrp + '2' + ''.join([ZBASE32[d] for d in combined])
 
 def bech32_decode(s):
   if any (ord(x) < 31 or ord(x) > 127 for x in s):
     return (None, None)
-  pos = s.rfind('-')
+  pos = s.rfind('2')
   if pos < 1 or pos + 7 > len(s) or len(s) > 89:
     return (None, None)
   if not all(x in ZBASE32 for x in s[pos+1:]):
@@ -64,7 +64,7 @@ def convertbits(data, frombits, tobits, pad=True):
   return ret
 
 def segwit_addr_encode(testnet, witver, witprog):
-  hrp = "bctest" if testnet else "bc"
+  hrp = "tb" if testnet else "bc"
   assert (witver >= 0 and witver <= 16)
   return bech32_encode(hrp, [witver] + convertbits(witprog, 8, 5))
 
@@ -72,7 +72,7 @@ def segwit_addr_decode(testnet, addr):
   if any (ord(x) < 31 or ord(x) > 127 for x in addr):
     return (None, None)
   hrp, data = bech32_decode(addr.lower())
-  hrpexp = "bctest" if testnet else "bc"
+  hrpexp = "tb" if testnet else "bc"
   if hrp != hrpexp:
     return None
   decoded = convertbits(data[1:], 5, 8, False)
