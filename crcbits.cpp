@@ -151,7 +151,7 @@ class Rander {
 
     void Step() {
         static_assert(sizeof(unsigned long long) == sizeof(uint64_t), "Bad ULL length");
-        if ((count & 0xFFFF) == 0) {
+        if ((count & 0xFFFFFUL) == 0) {
             s[0] = 0;
             s[1] = 0;
             _rdrand64_step((unsigned long long*)(s + 0));
@@ -304,10 +304,11 @@ void thread_crc() {
 }
 
 void thread_dump() {
+    uint32_t iter = 0;
     do {
         sleep(10);
         std::unique_lock<std::mutex> lock(cs_allresults);
-        printf("#counts: ");
+        printf("#counts %u: ", iter++);
         for (int e = 0; e < MAXERR-MINERR+1; e++) {
             printf("%llu,", (unsigned long long)allresults[e].count);
         }
