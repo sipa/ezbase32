@@ -13,7 +13,7 @@
 namespace {
 
 const uint32_t tbl[1][5] = {
-  {0x53A0C81, 0x8F09902, 0x11E13204, 0x21526128, 0x12346650}
+  {0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
 };
 
 /* BCH codes over GF(2^5)
@@ -170,14 +170,16 @@ public:
     }
 };
 
-#define LEN 89
+#define LEN 71
 #define LENBITS 9
+
+#define MINSYM 5
 
 #define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 // #define CHECKSUMS 180
 
-#define MINERR 4
+#define MINERR 5
 #define MAXERR 10
 
 
@@ -220,19 +222,26 @@ void test(int errors, uint64_t loop, Results* ret, Rander& rng, const std::set<i
     Results res = {};
     for (uint64_t i = 0; i < loop; i++) {
         uint32_t crc[CHECKSUMS] = {0};
-        int errpos[MAXERR];
-        for (int j = 0; j < errors; j++) {
-            int ok;
-            do {
-                errpos[j] = rng.GetInt16(LEN * 5, LENBITS);
-                ok = 1;
-                for (int k = 0; k < j; k++) {
-                    if (errpos[j] == errpos[k]) { ok = 0; break; }
-                }
-            } while (!ok);
-            for (int c : which) {
-                crc[c] ^= outputs.val[errpos[j] / 5][errpos[j] % 5][c];
+        char biterrs[LEN * 5] = {0};
+        char symerrs[LEN] = {0};
+        int syms = 0;
+        for (int j = 0; j < errors && syms + errors - j >= MINSYM; j++) {
+            while (true) {
+                int bitpos = rng.GetInt16(LEN * 5, LENBITS);
+                if (biterrs[bitpos]) continue;
+                int sympos = bitpos / 5;
+                syms += 1 ^ symerrs[sympos];
+                biterrs[bitpos] = 1;
+                symerrs[sympos] = 1;
+//                for (int c : which) {
+                int c = 0;
+                    crc[c] ^= outputs.val[sympos][bitpos % 5][c];
+//                }
+                break;
             }
+        }
+        if (syms < MINSYM) {
+            continue;
         }
         for (int c : which) {
             res.fails[c] += (crc[c] == 0);
