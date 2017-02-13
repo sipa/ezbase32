@@ -127,46 +127,58 @@ struct Checksum {
 };
 */
 
+static inline uint64_t rotl(const uint64_t x, int k) {
+    return (x << k) | (x >> (64 - k));
+}
+
 class Rander {
-    unsigned char data[4096];
-    int pos;
+    uint64_t s[2];
+    uint32_t count;
+
+    uint64_t next;
+    int bits;
+
+    void Produce(void) {
+        const uint64_t s0 = s[0];
+        uint64_t s1 = s[1];
+        next = s0 + s1;
+        bits = 64;
+
+        s1 ^= s0;
+        s[0] = rotl(s0, 55) ^ s1 ^ (s1 << 14); // a, b
+        s[1] = rotl(s1, 36); // c
+    }
 
     void Step() {
-        if ((pos & 0xFFF) == 0) {
-            for (int i = 0; i < 4096; i += sizeof(unsigned long long)) {
-                _rdrand64_step((unsigned long long*)(data + i));
-            }
-            pos = 0;
+        static_assert(sizeof(unsigned long long) == sizeof(uint64_t), "Bad ULL length");
+        if ((count & 0xFFFF) == 0) {
+            _rdrand64_step((unsigned long long*)(s + 0));
+            _rdrand64_step((unsigned long long*)(s + 1));
         }
+        ++count;
+
+        Produce();
     }
 
 public:
-    Rander() {
-        memset(data, 0, sizeof(data));
-        pos = 0;
-    }
+    Rander() : count(0), bits(0) {}
 
-    uint8_t GetByte() {
-        Step();
-        uint8_t ret = data[pos];
-        pos++;
+    uint32_t GetBits(int bits_) {
+        if (bits_ < bits) {
+            Step();
+        }
+
+        uint32_t ret = next & ((1UL << bits_) - 1);
+        next >>= bits_;
+        bits -= bits_;
         return ret;
     }
 
-    uint8_t GetInt(uint8_t max, int bits) {
-        uint8_t r;
+    uint32_t GetInt(uint32_t range, int bits_) {
         do {
-            r = GetByte() & ((1 << bits) - 1);
-        } while (r >= max);
-        return r;
-    }
-
-    uint16_t GetInt16(uint16_t max, int bits) {
-        uint16_t r;
-        do {
-            r = ((((uint16_t)GetByte()) << 8) | GetByte()) & ((1 << bits) - 1);
-        } while (r >= max);
-        return r;
+            uint32_t r = GetBits(bits_);
+            if (r < range) return r;
+        } while(true);
     }
 };
 
@@ -227,7 +239,7 @@ void test(int errors, uint64_t loop, Results* ret, Rander& rng, const std::set<i
         int syms = 0;
         for (int j = 0; j < errors && syms + errors - j >= MINSYM; j++) {
             while (true) {
-                int bitpos = rng.GetInt16(LEN * 5, LENBITS);
+                int bitpos = rng.GetInt(LEN * 5, LENBITS);
                 if (biterrs[bitpos]) continue;
                 int sympos = bitpos / 5;
                 syms += 1 ^ symerrs[sympos];
