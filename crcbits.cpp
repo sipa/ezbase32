@@ -152,6 +152,8 @@ class Rander {
     void Step() {
         static_assert(sizeof(unsigned long long) == sizeof(uint64_t), "Bad ULL length");
         if ((count & 0xFFFF) == 0) {
+            s[0] = 0;
+            s[1] = 0;
             _rdrand64_step((unsigned long long*)(s + 0));
             _rdrand64_step((unsigned long long*)(s + 1));
         }
