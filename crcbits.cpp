@@ -164,7 +164,7 @@ public:
     Rander() : count(0), bits(0) {}
 
     uint32_t GetBits(int bits_) {
-        if (bits_ < bits) {
+        if (bits_ > bits) {
             Step();
         }
 
