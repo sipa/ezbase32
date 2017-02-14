@@ -222,6 +222,7 @@ struct charset {
 };
 
 int main(int argc, char** argv) {
+    setbuf(stdout, NULL);
 
     int bestbad = 0;
     for (int d = 0; d < 2; d++) {
