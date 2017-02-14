@@ -229,7 +229,7 @@ struct charset {
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
 
-    int bestbad = 0;
+/*    int bestbad = 0;
     for (int d = 0; d < 2; d++) {
     for (int i1 = 0; i1 < 33; i1++) {
       char c1 = i1 < 10 ? '0' + i1 : 'a' + (i1 - 10);
@@ -255,7 +255,7 @@ int main(int argc, char** argv) {
         }
       }
     }
-    }
+    }*/
 
     int totalbad = 0;
     for (size_t i = 0; i < sizeof(badpairs) / sizeof(badpairs[0]); i++) {
@@ -264,8 +264,15 @@ int main(int argc, char** argv) {
     printf("Total bad: %x\n", totalbad);
 
     charset start(argv[1]);
+    if (argc > 2) {
+        for (int i = 0; i < 100; i++) {
+            charset n(start, randtrans(), randtrans(), randtrans(), randtrans());
+            start = n;
+        }
+    }
     uint64_t val = start.score();
     printf("Initial: %s (%llx)\n", start.print().c_str(), (unsigned long long)val);
+
 
     std::set<std::string> vars;
     for (int i = 0; i < 32; i++) {
