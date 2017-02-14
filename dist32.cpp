@@ -83,12 +83,17 @@ public:
 
 static Rander rander;
 
+bool effective_trans(int x) {
+    if ((x >> 5) == 0) return false;
+    if ((x >> 5) == 31) return false;
+    if ((x & 31 & (~(x >> 5))) == 0) return false;
+    return true;
+}
+
 int randtrans() {
     do {
         int x = rander.GetBits(10);
-        if ((x >> 5) == 0) continue;
-        if ((x >> 5) == 31) continue;
-        if ((x & 31 & (~(x >> 5))) == 0) continue;
+        if (!effective_trans(x)) continue;
         return x;
     } while(true);
 }
@@ -197,7 +202,7 @@ struct charset {
 
     uint64_t score() const {
         uint64_t ret[5] = {0};
-        for (int p = 0; p < 7; ++p) {
+/*        for (int p = 0; p < 7; ++p) {
             for (int s = 0; s < 32; ++s) {
                 int e = 1 << p;
                 int d = map2[s];
@@ -207,7 +212,7 @@ struct charset {
                     ++ret[mw - 1];
                 }
             }
-        }
+        }*/
 
         uint64_t bad = 0;
         for (size_t p = 0 ; p < sizeof(badpairs)/sizeof(badpairs[0]); p++) {
@@ -273,19 +278,37 @@ int main(int argc, char** argv) {
 
     bool cont = true;
     while (cont) {
+        int best = 0;
+        uint64_t bestval = 0;
         cont = false;
-        for (int x = 0; x < 1048476; ++x) {
-            charset m(start, x & 1023, x >> 10);
-            uint64_t nval = m.score();
-            if (nval > val) {
-                start = m;
-                val = nval;
-                printf("Update %i: %s (%llx)\n", x, start.print().c_str(), (unsigned long long)val);
+        int rr = rander.GetBits(10);
+        for (int x1 = 0; x1 < 1024; x1++) {
+            if (!effective_trans(x1 ^ rr)) continue;
+            charset m1(start, x1 ^ rr);
+            uint64_t nval1 = m1.score();
+            if (nval1 > val && nval1 >= bestval) {
+                bestval = nval1;
+                best = x1 ^ rr;
                 cont = true;
-                break;
+            }
+            for (int x2 = 32; x2 < 1024 - 32; x2++) {
+                if (!effective_trans(x2)) continue;
+                charset m2(start, x2);
+                uint64_t nval2 = m2.score();
+                if (nval2 > val && nval2 > bestval) {
+                    bestval = nval2;
+                    best = x1;
+                    cont = true;
+                }
             }
         }
-        if (cont) continue;
+        if (cont) {
+            charset m(start, best);
+            start = m;
+            val = m.score();
+            printf("Update E %i: %s (%llx)\n", best, start.print().c_str(), (unsigned long long)val);
+            continue;
+        }
         cont = false;
 
         for (int c = 3; c <= 6 && !cont; c++) {
