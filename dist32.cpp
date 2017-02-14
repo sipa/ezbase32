@@ -280,9 +280,7 @@ int main(int argc, char** argv) {
             if (nval > val) {
                 start = m;
                 val = nval;
-                printf("Update %i: ", x);
-                start.print();
-                printf(" (%llx)\n", (unsigned long long)val);
+                printf("Update %i: %s (%llx)\n", x, start.print().c_str(), , (unsigned long long)val);
                 cont = true;
                 break;
             }
