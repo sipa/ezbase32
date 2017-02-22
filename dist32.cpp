@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <immintrin.h>
 
+#include <math.h>
 #include <string>
 #include <vector>
 #include <set>
@@ -202,7 +203,7 @@ struct charset {
 
     uint64_t score() const {
         uint64_t ret[5] = {0};
-/*        for (int p = 0; p < 7; ++p) {
+        for (int p = 0; p < 7; ++p) {
             for (int s = 0; s < 32; ++s) {
                 int e = 1 << p;
                 int d = map2[s];
@@ -212,7 +213,7 @@ struct charset {
                     ++ret[mw - 1];
                 }
             }
-        }*/
+        }
 
         uint64_t bad = 0;
         for (size_t p = 0 ; p < sizeof(badpairs)/sizeof(badpairs[0]); p++) {
@@ -273,6 +274,12 @@ int main(int argc, char** argv) {
     uint64_t val = start.score();
     printf("Initial: %s (%llx)\n", start.print().c_str(), (unsigned long long)val);
 
+    for (size_t p = 0; p < sizeof(badpairs) / sizeof(badpairs[0]); p++) {
+        int v1 = start.map1[badpairs[p][0] + 0], v2 = start.map1[badpairs[p][1] + 0];
+        if (v1 != -1 && v2 != -1 && __builtin_popcount(v1 ^ v2) != 1) {
+            printf("Missing pair: %c %c (%x)\n", badpairs[p][0], badpairs[p][1], badpairs[p][2]);
+        }
+    }
 
     std::set<std::string> vars;
     for (int i = 0; i < 32; i++) {
@@ -280,9 +287,29 @@ int main(int argc, char** argv) {
         vars.insert(m.print());
     }
     for (const auto& x : vars) {
-        printf("Var: %s\n", x.c_str());
+        long double baddist = 0;
+        for (size_t p = 0; p < sizeof(badpairs) / sizeof(badpairs[0]); p++) {
+            int v1 = start.map1[badpairs[p][0] + 0], v2 = start.map1[badpairs[p][1] + 0];
+            if (v1 != -1 && v2 != -1) {
+                int dist = abs(v1 - v2);
+                if (dist == 1) baddist += badpairs[p][2]  * 1.0L;
+                if (dist == 2) baddist += badpairs[p][2]  * 0.01L;
+                if (dist == 3) baddist += badpairs[p][2]  * 0.0001L;
+                if (dist == 4) baddist += badpairs[p][2]  * 0.000001L;
+                if (dist == 5) baddist += badpairs[p][2]  * 0.00000001L;
+                if (dist == 6) baddist += badpairs[p][2]  * 0.0000000001L;
+                if (dist == 7) baddist += badpairs[p][2]  * 0.000000000001L;
+                if (dist == 8) baddist += badpairs[p][2]  * 0.00000000000001L;
+                if (dist == 9) baddist += badpairs[p][2]  * 0.0000000000000001L;
+                if (dist == 10) baddist += badpairs[p][2] * 0.000000000000000001L;
+                if (dist == 11) baddist += badpairs[p][2] * 0.00000000000000000001L;
+                if (dist == 12) baddist += badpairs[p][2] * 0.0000000000000000000001L;
+            }
+        }
+        printf("Var: %s %.20Lg\n", x.c_str(), baddist);
     }
 
+    exit(0);
     bool cont = true;
     while (cont) {
         int best = 0;

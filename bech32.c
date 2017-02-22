@@ -12,6 +12,16 @@ static uint32_t bech32_polymod_step(uint32_t pre, uint32_t encval, uint32_t decv
         (-((b >> 4) & 1) & 0x2a1462b3UL);
 }
 
+static uint32_t bech32_polymod_rstep(uint32_t pre, uint32_t encval, uint32_t decval) {
+    int b = (encval ^ pre) & 0x1F;
+    return (decval << 25) ^ (pre >> 5) ^
+        (-((b >> 0) & 1) & 0x228bf1a8UL) ^
+        (-((b >> 1) & 1) & 0x1703c750UL) ^
+        (-((b >> 2) & 1) & 0x2c972fa9UL) ^
+        (-((b >> 3) & 1) & 0xb2e5a72UL) ^
+        (-((b >> 4) & 1) & 0x14d895edUL);
+}
+
 void bech32_encode(char* output, const char* hrp, size_t hrp_len, const uint8_t* data, size_t data_len) {
     static const char* zbase32="ybndrfg8ejkmcpqxot1uwisza345h769";
     uint32_t chk = 0x3b6a57b2UL;
@@ -82,6 +92,8 @@ int bech32_decode(size_t *hrp_len, uint8_t* data, size_t* data_len, char* input,
 }
 
 int main(void) {
+    uint32_t test = bech32_polymod_rstep(bech32_polymod_step(0x123456,3,7),7,3);
+    printf("res=%x\n", test);
     char out[16];
     uint8_t data[20] = {1,2,3};
     const char* hrp = "bc";

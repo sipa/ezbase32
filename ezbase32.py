@@ -34,7 +34,7 @@ def convertbits(data, frombits, tobits, pad=True):
         return None
     return ret
 
-ZBASE32 = "bcdefghijkmnpqrstvwxyz0123456789"
+ZBASE32 = "qyp9g8cazxr4jknhuvft3wed26s507ml"
 
 INIT = 0x34056df6
 
@@ -70,8 +70,14 @@ def baseencode(data):
     print("chk: %r" % chk)
     return ('-'.join([''.join([ZBASE32[x] for x in s]) for s in data])) + ''.join([ZBASE32[x] for x in convertbits([checksum], 30, 5)])
 
+for j in [0,1,2,3]:
+  for i in [0,4,8,12,16,20,24,28]:
+    print(ZBASE32[i+j] + " ", end='')
+  print(" ")
+
 if __name__ == '__main__':
     random.seed()
     ff = [random.randrange(0,256) for x in xrange(32)]
     print("odata: %s" % ''.join("%02x" % x for x in ff))
     print("res: %r\n" % baseencode([[0,1],[0] + convertbits(ff, 8, 5)]))
+

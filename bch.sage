@@ -73,10 +73,13 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
 
         # Find extension field modulus (any is fine)
         while True:
-            E_modulus = polyfromarray(x, [F(1)] + randlist(M, F_all))
-            E.<e> = F.extension(E_modulus)
-            if E_modulus.is_primitive():
+            E_moduluss = polyfromarray(x, [F(1)] + randlist(M, F_all))
+            E.<e> = F.extension(E_moduluss)
+            if E_moduluss.is_primitive():
+                E_modulus = E_moduluss
                 break
+
+        E_modulus = x^2 + x + f + 1
 
         # Find primitive element in extension field (any is fine)
         while True:
@@ -220,10 +223,10 @@ if False:
     Ns={}
     for M in range(1,5):
       for d in (Q**M-1).divisors():
-        if d > 80 and d < 100 and d not in Ns:
+        if d > 1000 and d < 1100 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,5,6,1)
+      attempt(Q,M,N,7,11,1)
 else:
     attempt_exhaust(2,5,2,1023,4,6)
