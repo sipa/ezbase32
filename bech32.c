@@ -91,14 +91,194 @@ int bech32_decode(size_t *hrp_len, uint8_t* data, size_t* data_len, char* input,
     return chk == 1;
 }
 
+static int8_t exp5[32], log5[32];
+
+void logtable5(void) {
+    int fmod = 41;
+    log5[0] = -1;
+    log5[1] = 0;
+    exp5[0] = 1;
+    exp5[31] = 1;
+    int v = 1;
+    for (int i = 1; i < 31; i++) {
+        v = v << 1;
+        if (v & 32) v ^= fmod;
+        exp5[i] = v;
+        log5[v] = i;
+    }
+}
+
+int mul5(int a, int b) {
+    if (a == 0 || b == 0) return 0;
+    int l = log5[a] + log5[b];
+    return exp5[(l + (l >> 5)) & 31];
+}
+
+static int16_t exp10[1024], log10[1024];
+
+void logtable10(void) {
+    log10[0] = -1;
+    log10[1] = 0;
+    exp10[0] = 1;
+    exp10[1023] = 1;
+    int v = 1;
+    for (int i = 1; i < 1023; i++) {
+        int v0 = v & 31;
+        int v1 = v >> 5;
+
+        int v1n = mul5(v1, 6) ^ mul5(v0, 9);
+        int v0n = mul5(v0, 15) ^ mul5(v1, 27);
+        v = v1n << 5 | v0n;
+        exp10[i] = v;
+        log10[v] = i;
+    }
+}
+
+int mul10(int a, int b) {
+    if (a == 0 || b == 0) return 0;
+    int l = log10[a] + log10[b];
+    return exp10[(l + (l >> 10)) & 1023];
+}
+
+int mul10l(int a, int bl) {
+    if (a == 0) return 0;
+    int l = log10[a] + bl;
+    return exp10[(l + (l >> 10)) & 1023];
+}
+
+uint32_t syndrome(uint32_t fault) {
+    uint32_t low = fault & 0x1f;
+    return low ^ (low << 10) ^ (low << 20) ^
+           (-((fault >> 5) & 1) & 0x31edd3c4UL) ^
+           (-((fault >> 6) & 1) & 0x335f86a8UL) ^
+           (-((fault >> 7) & 1) & 0x363b8870UL) ^
+           (-((fault >> 8) & 1) & 0x3e6390c9UL) ^
+           (-((fault >> 9) & 1) & 0x2ec72192UL) ^
+           (-((fault >> 10) & 1) & 0x1046f79dUL) ^
+           (-((fault >> 11) & 1) & 0x208d4e33UL) ^
+           (-((fault >> 12) & 1) & 0x130ebd6fUL) ^
+           (-((fault >> 13) & 1) & 0x2499fadeUL) ^
+           (-((fault >> 14) & 1) & 0x1b27d4b5UL) ^
+           (-((fault >> 15) & 1) & 0x04be1eb4UL) ^
+           (-((fault >> 16) & 1) & 0x0968b861UL) ^
+           (-((fault >> 17) & 1) & 0x1055f0c2UL) ^
+           (-((fault >> 18) & 1) & 0x20ab4584UL) ^
+           (-((fault >> 19) & 1) & 0x1342af08UL) ^
+           (-((fault >> 20) & 1) & 0x24f1f318UL) ^
+           (-((fault >> 21) & 1) & 0x1be34739UL) ^
+           (-((fault >> 22) & 1) & 0x35562f7bUL) ^
+           (-((fault >> 23) & 1) & 0x3a3c5bffUL) ^
+           (-((fault >> 24) & 1) & 0x266c96f7UL) ^
+           (-((fault >> 25) & 1) & 0x25c78b65UL) ^
+           (-((fault >> 26) & 1) & 0x1b1f13eaUL) ^
+           (-((fault >> 27) & 1) & 0x34baa2f4UL) ^
+           (-((fault >> 28) & 1) & 0x3b61c0e1UL) ^
+           (-((fault >> 29) & 1) & 0x265325c2UL);
+}
+
+static inline uint32_t mod1023(uint32_t x) { return (x & 0x3FF) + (x >> 10); }
+
+int find_error_pos(uint32_t fault)
+{
+    if (fault == 0) {
+        return 0;
+    }
+
+    uint32_t syn = syndrome(fault);
+    int s0 = syn & 0x3FF;
+    int s1 = (syn >> 10) & 0x3FF;
+    int s2 = syn >> 20;
+
+    int ls0 = log10[s0], ls1 = log10[s1], ls2 = log10[s2];
+    if (ls0 != -1 && ls1 != -1 && ls2 != -1 && mod1023(mod1023(2 * ls1 - ls2 - ls0 + 2047)) == 1) {
+        return mod1023(ls1 - ls0 + 1024);
+    }
+
+    for (int p1 = 0; p1 < 89; p1++) {
+        int tmp3 = s2 ^ (s1 == 0 ? 0 : exp10[mod1023(ls1 + p1)]);
+        if (tmp3 == 0) continue;
+        int tmp2 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p1)]);
+        if (tmp2 == 0) continue;
+
+        int p2 = mod1023(log10[tmp3] - log10[tmp2] + 1023);
+        if (p2 >= 89 || p1 == p2) continue;
+
+        int tmp1 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p2)]);
+        if (tmp1 == 0) continue;
+
+        int tmp5 = 1023 - log10[exp10[p1] ^ exp10[p2]];
+
+        int e1 = exp10[mod1023(mod1023(log10[tmp1] + tmp5 + (1023 - 997)*p1))];
+        if (e1 >= 32) continue;
+
+        int e2 = exp10[mod1023(mod1023(log10[tmp2] + tmp5 + (1023 - 997)*p2))];
+        if (e2 >= 32) continue;
+
+        if (p1 < p2) {
+            return (p1 + 1) << 8 | (p2 + 1);
+        } else {
+            return (p2 + 1) << 8 | (p1 + 1);
+        }
+    }
+    return -1;
+}
+
+
 int main(void) {
-    uint32_t test = bech32_polymod_rstep(bech32_polymod_step(0x123456,3,7),7,3);
-    printf("res=%x\n", test);
-    char out[16];
-    uint8_t data[20] = {1,2,3};
-    const char* hrp = "bc";
-    size_t hrp_len = 2, data_len;
-    bech32_encode(out, hrp, hrp_len, data, 3);
-    printf("%s\n", out);
-    printf("decode = %i\n", bech32_decode(&hrp_len, data, &data_len, out, strlen(out)));
+    logtable5();
+    logtable10();
+
+/*
+    Generate the fault -> syndrome table:
+
+    for (int p = 0; p < 6; p++) {
+        for (int i = 0; i < 5; i++) {
+            int fault = 1 << i;
+            for (int x = 0; x < p; x++) { fault = bech32_polymod_step(fault, 0, 0); }
+            int s0 = 0, s1 = 0, s2 = 0;
+            for (int i = 0; i < 6; i++) {
+                int fi = (fault >> (5 * (5 - i))) & 31;
+                s0 = mul10l(s0, 997) ^ fi;
+                s1 = mul10l(s1, 998) ^ fi;
+                s2 = mul10l(s2, 999) ^ fi;
+            }
+            printf("0x%x ", s2 << 20 | s1 << 10 | s0);
+        }
+    }
+    printf("\n");
+*/
+
+    uint32_t faults[89][31];
+
+    for (int err = 1; err < 32; ++err) {
+        faults[0][err - 1] = err;
+        for (int pos = 1; pos < 89; ++pos) {
+            faults[pos][err - 1] = bech32_polymod_step(faults[pos - 1][err - 1], 0, 0);
+        }
+    }
+
+    for (int pos1 = 0; pos1 < 89; ++pos1) {
+        for (int err1 = 1; err1 < 32; ++err1) {
+            uint32_t fault = faults[pos1][err1 - 1];
+            int solve = find_error_pos(fault);
+            if (solve != pos1 + 1) {
+                printf("Fail: E%iP%i -> S%x\n", err1, pos1, solve);
+            }
+        }
+    }
+
+    for (int pos1 = 0; pos1 < 89; ++pos1) {
+        for (int err1 = 1; err1 < 32; ++err1) {
+            uint32_t fault1 = faults[pos1][err1 - 1];
+            for (int pos2 = pos1 + 1; pos2 < 89; ++pos2) {
+                for (int err2 = 1; err2 < 32; ++err2) {
+                    uint32_t fault = fault1 ^ faults[pos2][err2 - 1];
+                    int solve = find_error_pos(fault);
+                    if (solve != (((pos1 + 1) << 8) | (pos2 + 1))) {
+                        printf("Fail: E%i@P%i E%iP%i -> S%x\n", err1, pos1, err2, pos2, solve);
+                    }
+                }
+            }
+        }
+    }
 }

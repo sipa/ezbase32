@@ -80,6 +80,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 break
 
         E_modulus = x^2 + x + f + 1
+        E.<e> = F.extension(E_modulus)
 
         # Find primitive element in extension field (any is fine)
         while True:
