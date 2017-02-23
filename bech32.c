@@ -12,16 +12,6 @@ static uint32_t bech32_polymod_step(uint32_t pre, uint32_t encval, uint32_t decv
         (-((b >> 4) & 1) & 0x2a1462b3UL);
 }
 
-static uint32_t bech32_polymod_rstep(uint32_t pre, uint32_t encval, uint32_t decval) {
-    int b = (encval ^ pre) & 0x1F;
-    return (decval << 25) ^ (pre >> 5) ^
-        (-((b >> 0) & 1) & 0x228bf1a8UL) ^
-        (-((b >> 1) & 1) & 0x1703c750UL) ^
-        (-((b >> 2) & 1) & 0x2c972fa9UL) ^
-        (-((b >> 3) & 1) & 0xb2e5a72UL) ^
-        (-((b >> 4) & 1) & 0x14d895edUL);
-}
-
 void bech32_encode(char* output, const char* hrp, size_t hrp_len, const uint8_t* data, size_t data_len) {
     static const char* zbase32="ybndrfg8ejkmcpqxot1uwisza345h769";
     uint32_t chk = 0x3b6a57b2UL;
@@ -178,6 +168,7 @@ uint32_t syndrome(uint32_t fault) {
 
 static inline uint32_t mod1023(uint32_t x) { return (x & 0x3FF) + (x >> 10); }
 
+
 int find_error_pos(uint32_t fault)
 {
     if (fault == 0) {
@@ -189,30 +180,36 @@ int find_error_pos(uint32_t fault)
     int s1 = (syn >> 10) & 0x3FF;
     int s2 = syn >> 20;
 
-    int ls0 = log10[s0], ls1 = log10[s1], ls2 = log10[s2];
-    if (ls0 != -1 && ls1 != -1 && ls2 != -1 && mod1023(mod1023(2 * ls1 - ls2 - ls0 + 2047)) == 1) {
-        return mod1023(ls1 - ls0 + 1024);
+    int l_s0 = log10[s0], l_s1 = log10[s1], l_s2 = log10[s2];
+    if (l_s0 != -1 && l_s1 != -1 && l_s2 != -1 && mod1023(mod1023(2 * l_s1 - l_s2 - l_s0 + 2047)) == 1) {
+        int p1 = mod1023(l_s1 - l_s0 + 1024) - 1;
+        if (p1 < 89) {
+            int e1 = exp10[mod1023(mod1023(l_s0 + (1023 - 997) * p1))];
+            if (e1 < 32) {
+                return p1 + 1;
+            }
+        }
     }
 
     for (int p1 = 0; p1 < 89; p1++) {
-        int tmp3 = s2 ^ (s1 == 0 ? 0 : exp10[mod1023(ls1 + p1)]);
-        if (tmp3 == 0) continue;
-        int tmp2 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p1)]);
-        if (tmp2 == 0) continue;
-        int ltmp2 = log10[tmp2];
+        int s2_s1p1 = s2 ^ (s1 == 0 ? 0 : exp10[mod1023(l_s1 + p1)]);
+        if (s2_s1p1 == 0) continue;
+        int s1_s0p1 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(l_s0 + p1)]);
+        if (s1_s0p1 == 0) continue;
+        int l_s1_s0p1 = log10[s1_s0p1];
 
-        int p2 = mod1023(log10[tmp3] - ltmp2 + 1023);
+        int p2 = mod1023(log10[s2_s1p1] - l_s1_s0p1 + 1023);
         if (p2 >= 89 || p1 == p2) continue;
 
-        int tmp1 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p2)]);
-        if (tmp1 == 0) continue;
+        int s1_s0p2 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(l_s0 + p2)]);
+        if (s1_s0p2 == 0) continue;
 
-        int tmp5 = 1023 - log10[exp10[p1] ^ exp10[p2]];
+        int inv_p1_p2 = 1023 - log10[exp10[p1] ^ exp10[p2]];
 
-        int e1 = exp10[mod1023(mod1023(log10[tmp1] + tmp5 + (1023 - 997)*p1))];
+        int e1 = exp10[mod1023(mod1023(log10[s1_s0p2] + inv_p1_p2 + (1023 - 997)*p1))];
         if (e1 >= 32) continue;
 
-        int e2 = exp10[mod1023(mod1023(ltmp2 + tmp5 + (1023 - 997)*p2))];
+        int e2 = exp10[mod1023(mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997)*p2))];
         if (e2 >= 32) continue;
 
         if (p1 < p2) {
@@ -249,7 +246,7 @@ int main(void) {
     printf("\n");
 */
 
-    uint32_t faults[89][31];
+    static uint32_t faults[89][31];
 
     for (int err = 1; err < 32; ++err) {
         faults[0][err - 1] = err;
@@ -282,4 +279,5 @@ int main(void) {
             }
         }
     }
+
 }
