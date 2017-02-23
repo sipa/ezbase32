@@ -81,9 +81,11 @@ int bech32_decode(size_t *hrp_len, uint8_t* data, size_t* data_len, char* input,
     return chk == 1;
 }
 
-static int8_t exp5[32], log5[32];
+static int16_t exp10[1024], log10[1024];
 
-void logtable5(void) {
+void logtable10(void) {
+    // Build table for GF(32)
+    int8_t exp5[32], log5[32];
     int fmod = 41;
     log5[0] = -1;
     log5[1] = 0;
@@ -96,47 +98,26 @@ void logtable5(void) {
         exp5[i] = v;
         log5[v] = i;
     }
-}
 
-int mul5(int a, int b) {
-    if (a == 0 || b == 0) return 0;
-    int l = log5[a] + log5[b];
-    return exp5[(l + (l >> 5)) & 31];
-}
-
-static int16_t exp10[1024], log10[1024];
-
-void logtable10(void) {
+    // Build table for GF(1024)
     log10[0] = -1;
     log10[1] = 0;
     exp10[0] = 1;
     exp10[1023] = 1;
-    int v = 1;
+    v = 1;
     for (int i = 1; i < 1023; i++) {
         int v0 = v & 31;
         int v1 = v >> 5;
 
-        int v1n = mul5(v1, 6) ^ mul5(v0, 9);
-        int v0n = mul5(v0, 15) ^ mul5(v1, 27);
+        int v1n = (v1 ? exp5[(log5[v1] + log5[6]) % 31] : 0) ^ (v0 ? exp5[(log5[v0] + log5[9]) % 31] : 0);
+        int v0n = (v1 ? exp5[(log5[v1] + log5[27]) % 31] : 0) ^ (v0 ? exp5[(log5[v0] + log5[15]) % 31] : 0);
         v = v1n << 5 | v0n;
         exp10[i] = v;
         log10[v] = i;
     }
 }
 
-int mul10(int a, int b) {
-    if (a == 0 || b == 0) return 0;
-    int l = log10[a] + log10[b];
-    return exp10[(l + (l >> 10)) & 1023];
-}
-
-int mul10l(int a, int bl) {
-    if (a == 0) return 0;
-    int l = log10[a] + bl;
-    return exp10[(l + (l >> 10)) & 1023];
-}
-
-uint32_t syndrome(uint32_t fault) {
+static inline uint32_t syndrome(uint32_t fault) {
     uint32_t low = fault & 0x1f;
     return low ^ (low << 10) ^ (low << 20) ^
            (-((fault >> 5) & 1) & 0x31edd3c4UL) ^
@@ -183,12 +164,10 @@ int find_error_pos(uint32_t fault)
     int l_s0 = log10[s0], l_s1 = log10[s1], l_s2 = log10[s2];
     if (l_s0 != -1 && l_s1 != -1 && l_s2 != -1 && mod1023(mod1023(2 * l_s1 - l_s2 - l_s0 + 2047)) == 1) {
         int p1 = mod1023(l_s1 - l_s0 + 1024) - 1;
-        if (p1 < 89) {
-            int e1 = exp10[mod1023(mod1023(l_s0 + (1023 - 997) * p1))];
-            if (e1 < 32) {
-                return p1 + 1;
-            }
-        }
+        if (p1 >= 89) return -1;
+        int e1 = exp10[mod1023(mod1023(l_s0 + (1023 - 997) * p1))];
+        if (e1 >= 32) return -1;
+        return p1 + 1;
     }
 
     for (int p1 = 0; p1 < 89; p1++) {
@@ -223,7 +202,6 @@ int find_error_pos(uint32_t fault)
 
 
 int main(void) {
-    logtable5();
     logtable10();
 
 /*
