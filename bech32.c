@@ -199,8 +199,9 @@ int find_error_pos(uint32_t fault)
         if (tmp3 == 0) continue;
         int tmp2 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p1)]);
         if (tmp2 == 0) continue;
+        int ltmp2 = log10[tmp2];
 
-        int p2 = mod1023(log10[tmp3] - log10[tmp2] + 1023);
+        int p2 = mod1023(log10[tmp3] - ltmp2 + 1023);
         if (p2 >= 89 || p1 == p2) continue;
 
         int tmp1 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(ls0 + p2)]);
@@ -211,7 +212,7 @@ int find_error_pos(uint32_t fault)
         int e1 = exp10[mod1023(mod1023(log10[tmp1] + tmp5 + (1023 - 997)*p1))];
         if (e1 >= 32) continue;
 
-        int e2 = exp10[mod1023(mod1023(log10[tmp2] + tmp5 + (1023 - 997)*p2))];
+        int e2 = exp10[mod1023(mod1023(ltmp2 + tmp5 + (1023 - 997)*p2))];
         if (e2 >= 32) continue;
 
         if (p1 < p2) {
