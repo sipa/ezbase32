@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
+
+#include <map>
+#include <algorithm>
 
 static uint32_t bech32_polymod_step(uint32_t pre, uint32_t encval, uint32_t decval) {
     int b = encval ^ (pre >> 25);
@@ -200,6 +204,18 @@ int find_error_pos(uint32_t fault, int length)
     return -1;
 }
 
+static int cmp3(const void* a, const void* b) {
+    int* pa = (int*)a;
+    int* pb = (int*)b;
+    if (pa[0] < pb[0]) return -1;
+    if (pa[0] > pb[0]) return 1;
+    if (pa[1] < pb[1]) return -1;
+    if (pa[1] > pb[1]) return 1;
+    if (pa[2] < pb[2]) return -1;
+    if (pa[2] > pb[2]) return 1;
+    return 0;
+}
+
 
 int main(void) {
     logtable10();
@@ -264,6 +280,7 @@ int main(void) {
     std::map<int, uint64_t> xfails[32];
     #pragma omp parallel for
     for (int err1 = 1; err1 < 32; ++err1) {
+        int counts[89*31][3];
         for (int pos1 = 0; pos1 < len; ++pos1) {
             uint32_t fault1 = faults[pos1][err1 - 1];
             for (int pos2 = pos1 + 1; pos2 < len; ++pos2) {
@@ -277,7 +294,7 @@ int main(void) {
                             if (solve != -1) {
                                 fails[err1] += (solve != -1);
                             } else {
-                                std::map<std::array<int,3>, uint64_t> counts;
+                                int ncounts = 0;
                                 for (int pos4 = 0; pos4 < len; ++pos4) {
                                     for (int err4 = 1; err4 < 32; ++err4) {
                                         uint32_t fault4 = fault3 ^ faults[pos4][err4 - 1];
@@ -288,11 +305,22 @@ int main(void) {
                                             assert(p1 < len && p2 < len);
                                             std::array<int, 3> pos = {pos4, p1, p2};
                                             std::sort(pos.begin(), pos.end());
-                                            ++counts[pos];
+                                            assert(ncounts < 89*31);
+                                            counts[ncounts][0] = pos[0];
+                                            counts[ncounts][1] = pos[1];
+                                            counts[ncounts][2] = pos[2];
+                                            ++ncounts;
                                         }
                                     }
                                 }
-                                ++xfails[err1][counts.size()]
+                                qsort(counts, ncounts, sizeof(counts[0]), cmp3);
+                                int diff = 0;
+                                for (int xx = 0; xx < ncounts; ++xx) {
+                                    if (xx == 0 || cmp3(counts[xx], counts[xx-1]) != 0) {
+                                        ++diff;
+                                    }
+                                }
+                                ++xfails[err1][diff];
                             }
                         }
                     }
