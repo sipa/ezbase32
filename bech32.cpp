@@ -85,9 +85,9 @@ int bech32_decode(size_t *hrp_len, uint8_t* data, size_t* data_len, char* input,
     return chk == 1;
 }
 
-static int16_t exp10[1024], log10[1024];
+static int16_t exptable[1024], logtable[1024];
 
-void logtable10(void) {
+void build_gftables(void) {
     // Build table for GF(32)
     int8_t exp5[32], log5[32];
     int fmod = 41;
@@ -104,10 +104,10 @@ void logtable10(void) {
     }
 
     // Build table for GF(1024)
-    log10[0] = -1;
-    log10[1] = 0;
-    exp10[0] = 1;
-    exp10[1023] = 1;
+    logtable[0] = -1;
+    logtable[1] = 0;
+    exptable[0] = 1;
+    exptable[1023] = 1;
     v = 1;
     for (int i = 1; i < 1023; i++) {
         int v0 = v & 31;
@@ -116,8 +116,8 @@ void logtable10(void) {
         int v1n = (v1 ? exp5[(log5[v1] + log5[6]) % 31] : 0) ^ (v0 ? exp5[(log5[v0] + log5[9]) % 31] : 0);
         int v0n = (v1 ? exp5[(log5[v1] + log5[27]) % 31] : 0) ^ (v0 ? exp5[(log5[v0] + log5[15]) % 31] : 0);
         v = v1n << 5 | v0n;
-        exp10[i] = v;
-        log10[v] = i;
+        exptable[i] = v;
+        logtable[v] = i;
     }
 }
 
@@ -165,34 +165,34 @@ int find_error_pos(uint32_t fault, int length)
     int s1 = (syn >> 10) & 0x3FF;
     int s2 = syn >> 20;
 
-    int l_s0 = log10[s0], l_s1 = log10[s1], l_s2 = log10[s2];
+    int l_s0 = logtable[s0], l_s1 = logtable[s1], l_s2 = logtable[s2];
     if (l_s0 != -1 && l_s1 != -1 && l_s2 != -1 && mod1023(mod1023(2 * l_s1 - l_s2 - l_s0 + 2047)) == 1) {
         int p1 = mod1023(l_s1 - l_s0 + 1024) - 1;
         if (p1 >= length) return -1;
-        int e1 = exp10[mod1023(mod1023(l_s0 + (1023 - 997) * p1))];
+        int e1 = exptable[mod1023(mod1023(l_s0 + (1023 - 997) * p1))];
         if (e1 >= 32) return -1;
         return p1 + 1;
     }
 
     for (int p1 = 0; p1 < length; p1++) {
-        int s2_s1p1 = s2 ^ (s1 == 0 ? 0 : exp10[mod1023(l_s1 + p1)]);
+        int s2_s1p1 = s2 ^ (s1 == 0 ? 0 : exptable[mod1023(l_s1 + p1)]);
         if (s2_s1p1 == 0) continue;
-        int s1_s0p1 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(l_s0 + p1)]);
+        int s1_s0p1 = s1 ^ (s0 == 0 ? 0 : exptable[mod1023(l_s0 + p1)]);
         if (s1_s0p1 == 0) continue;
-        int l_s1_s0p1 = log10[s1_s0p1];
+        int l_s1_s0p1 = logtable[s1_s0p1];
 
-        int p2 = mod1023(log10[s2_s1p1] - l_s1_s0p1 + 1023);
+        int p2 = mod1023(logtable[s2_s1p1] - l_s1_s0p1 + 1023);
         if (p2 >= length || p1 == p2) continue;
 
-        int s1_s0p2 = s1 ^ (s0 == 0 ? 0 : exp10[mod1023(l_s0 + p2)]);
+        int s1_s0p2 = s1 ^ (s0 == 0 ? 0 : exptable[mod1023(l_s0 + p2)]);
         if (s1_s0p2 == 0) continue;
 
-        int inv_p1_p2 = 1023 - log10[exp10[p1] ^ exp10[p2]];
+        int inv_p1_p2 = 1023 - logtable[exptable[p1] ^ exptable[p2]];
 
-        int e1 = exp10[mod1023(mod1023(log10[s1_s0p2] + inv_p1_p2 + (1023 - 997)*p1))];
+        int e1 = exptable[mod1023(mod1023(logtable[s1_s0p2] + inv_p1_p2 + (1023 - 997)*p1))];
         if (e1 >= 32) continue;
 
-        int e2 = exp10[mod1023(mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997)*p2))];
+        int e2 = exptable[mod1023(mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997)*p2))];
         if (e2 >= 32) continue;
 
         if (p1 < p2) {
@@ -218,7 +218,7 @@ static int cmp3(const void* a, const void* b) {
 
 
 int main(void) {
-    logtable10();
+    build_gftables();
 
 /*
     Generate the fault -> syndrome table:
