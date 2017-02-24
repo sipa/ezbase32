@@ -148,7 +148,7 @@ static inline uint32_t syndrome(uint32_t fault) {
 }
 
 static inline uint32_t mod1023(uint32_t x) { return (x & 0x3FF) + (x >> 10); }
-
+static inline int mod33(int x) { return (x & 0x1F) - (x >> 5); }
 
 int find_error_pos(uint32_t fault, int length)
 {
@@ -165,7 +165,7 @@ int find_error_pos(uint32_t fault, int length)
     if (l_s0 != -1 && l_s1 != -1 && l_s2 != -1 && mod1023(mod1023(2 * l_s1 - l_s2 - l_s0 + 2047)) == 1) {
         int p1 = mod1023(l_s1 - l_s0 + 1024) - 1;
         if (p1 >= length) return -1;
-        if ((l_s0 + (1023 - 997) * p1) % 33) return -1;
+        if (mod33(mod1023(mod1023(l_s0 + (1023 - 997) * p1)))) return -1;
         return p1 + 1;
     }
 
@@ -184,8 +184,8 @@ int find_error_pos(uint32_t fault, int length)
 
         int inv_p1_p2 = 1023 - log10[exp10[p1] ^ exp10[p2]];
 
-        if ((l_s1_s0p1 + inv_p1_p2 + (1023 - 997) * p2) % 33) continue;
-        if ((log10[s1_s0p2] + inv_p1_p2 + (1023 - 997) * p1) % 33) continue;
+        if (mod33(mod1023(mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997) * p2)))) continue;
+        if (mod33(mod1023(mod1023(log10[s1_s0p2] + inv_p1_p2 + (1023 - 997) * p1)))) continue;
 
         if (p1 < p2) {
             return (p1 + 1) << 8 | (p2 + 1);
