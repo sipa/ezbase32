@@ -184,7 +184,7 @@ public:
     }
 };
 
-#define LEN 71
+#define LEN 59
 #define LENBITS 9
 
 #define MINSYM 5
@@ -193,8 +193,8 @@ public:
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 // #define CHECKSUMS 180
 
-#define MINERR 5
-#define MAXERR 10
+#define MINERR 6
+#define MAXERR 6
 
 
 struct CRCOutputs {
@@ -285,7 +285,7 @@ void thread_crc() {
             for (int e = 0; e < MAXERR-MINERR+1; e++) {
                 allresults[e] += r[e];
             }
-            for (auto it = which.begin(); it != which.end(); ) {
+/*            for (auto it = which.begin(); it != which.end(); ) {
                 bool keep = false;
                 for (int e = 0; e < MAXERR-MINERR+1; e++) {
                     if (!allresults[e].fails[*it]) {
@@ -298,7 +298,7 @@ void thread_crc() {
                 } else {
                     ++it;
                 }
-            }
+            }*/
         }
     } while(true);
 }

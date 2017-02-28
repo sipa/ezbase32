@@ -130,6 +130,7 @@ for word in words:
 KEYID = [ord(x) for x in hash160(KEY)]
 SCRIPTID = [ord(x) for x in hash256("21".decode("hex") + KEY + "ac".decode("hex"))]
 
+
 ENC1 = segwit_addr_encode(False, 15, (KEYID + KEYID)[0:41])
 ENC2 = segwit_addr_encode(True, 0, KEYID)
 ENC3 = segwit_addr_encode(False, 0, SCRIPTID)
@@ -149,3 +150,53 @@ print("DEC3: %r" % (DEC3,))
 print("DEC4: %r" % (DEC4,))
 
 print(bech32_encode("bc", [1,2,3]));
+
+n = 0
+hh = ""
+
+for d in range(1,256):
+    h = hash256("01".decode("hex") + chr(d))
+    nn = 0
+    for p in range(32):
+      if ord(h[p]) == 0:
+        nn += 1
+      else:
+        break
+    if nn > n:
+      n = nn
+      print("better: ", d, ":", n)
+      hh = h
+
+for d1 in range(1,256):
+ for d2 in range(0,256):
+    h = hash256("02".decode("hex") + chr(d1) + chr(d2))
+    nn = 0
+    for p in range(32):
+      if ord(h[p]) == 0:
+        nn += 1
+      else:
+        break
+    if nn > n:
+      n = nn
+      print("better: ", d1, " ", d2, ":", n)
+      hh = h
+
+for d1 in range(1,256):
+ for d2 in range(0,256):
+  for d3 in range(0,256):
+    h = hash256("03".decode("hex") + chr(d1) + chr(d2) + chr(d3))
+    nn = 0
+    for p in range(32):
+      if ord(h[p]) == 0:
+        nn += 1
+      else:
+        break
+    if nn > n:
+      n = nn
+      print("better: ", d1, " ", d2, " ", d3, ":", n)
+      hh = h
+
+SCRIPTID = [ord(x) for x in hh]
+ADDR=segwit_addr_encode(True, 0, SCRIPTID)
+print(ADDR)
+print(segwit_scriptpubkey(segwit_addr_decode(True, ADDR)))

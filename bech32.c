@@ -148,9 +148,8 @@ static inline uint32_t syndrome(uint32_t fault) {
 }
 
 static inline uint32_t mod1023(uint32_t x) { return (x & 0x3FF) + (x >> 10); }
-static inline int mod33(int x) { return (x & 0x1F) - (x >> 5); }
 
-int find_error_pos(uint32_t fault, int length)
+int locate_errors2(uint32_t fault, int length, int maxnon1bit)
 {
     if (fault == 0) {
         return 0;
@@ -165,7 +164,9 @@ int find_error_pos(uint32_t fault, int length)
     if (l_s0 != -1 && l_s1 != -1 && l_s2 != -1 && mod1023(mod1023(2 * l_s1 - l_s2 - l_s0 + 2047)) == 1) {
         int p1 = mod1023(l_s1 - l_s0 + 1024) - 1;
         if (p1 >= length) return -1;
-        if (mod33(mod1023(mod1023(l_s0 + (1023 - 997) * p1)))) return -1;
+        int l_e1 = mod1023(l_s0 + (1023 - 997) * p1 + 1) - 1;
+        if (maxnon1bit == 0 && (l_e1 > 396 || (l_e1 % 99))) return -1;
+        if (l_e1 % 33) return -1;
         return p1 + 1;
     }
 
@@ -184,8 +185,13 @@ int find_error_pos(uint32_t fault, int length)
 
         int inv_p1_p2 = 1023 - log10[exp10[p1] ^ exp10[p2]];
 
-        if (mod33(mod1023(mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997) * p2)))) continue;
-        if (mod33(mod1023(mod1023(log10[s1_s0p2] + inv_p1_p2 + (1023 - 997) * p1)))) continue;
+        int l_e2 = mod1023(l_s1_s0p1 + inv_p1_p2 + (1023 - 997) * p2 + 1) - 1;
+        if (l_e2 % 33) continue;
+        int non1bit = l_e2 > 396 || (l_e2 % 99);
+        int l_e1 = mod1023(log10[s1_s0p2] + inv_p1_p2 + (1023 - 997) * p1 + 1) - 1;
+        if (l_e1 % 33) continue;
+        non1bit += l_e1 > 396 || (l_e1 % 99);
+        if (non1bit > maxnon1bit) return -1;
 
         if (p1 < p2) {
             return (p1 + 1) << 8 | (p2 + 1);
@@ -196,9 +202,54 @@ int find_error_pos(uint32_t fault, int length)
     return -1;
 }
 
+#define min(a,b) ((a)<(b)?(a):(b))
+#define max(a,b) ((a)>(b)?(a):(b))
+
+int locate_errors3(uint32_t fault, int length)
+{
+    int result = locate_errors2(fault, length, 0);
+    if (result != -1) {
+        return result;
+    }
+    for (int non1bit = 0; non1bit < 4; ++non1bit) {
+        int found = 0;
+        for (int i_e1 = 0; i_e1 < (non1bit == 3 ? 31 : 5); i_e1++) {
+            int e1 = 1 << i_e1;
+            if (non1bit == 3) {
+                e1 = 1 + i_e1;
+            }
+            uint32_t fault_e1 = e1;
+            for (int p1 = 0; p1 < length; ++p1) {
+                int res = locate_errors2(fault ^ fault_e1, length, min(2, non1bit));
+//                printf("Try: %i@%i (fault=%x) => fault=%x => res=%x\n", e1, p1, fault_e1, fault ^ fault_e1, res);
+                fault_e1 = bech32_polymod_step(fault_e1, 0, 0);
+                if (res < 0x100) continue;
+
+                int p2 = (res & 0xff) - 1;
+                int p3 = (res >> 8) - 1;
+                int ps[3];
+                ps[0] = min(min(p1, p2), p3);
+                ps[2] = max(max(p1, p2), p3);
+                ps[1] = p1 + p2 + p3 - ps[0] - ps[2];
+//                printf("* Res: %i %i %i\n", ps[0], ps[1], ps[2]);
+                int comb = ((1 + ps[0]) << 16) | ((1 + ps[1]) << 8) | (1 + ps[2]);
+                if (found == 0 || comb != result) {
+                    found++;
+                    result = comb;
+                }
+            }
+        }
+        if (found == 1) return result;
+    }
+    return -1;
+}
 
 int main(void) {
     logtable10();
+
+    for (int i = 0; i < 5; ++i) {
+        printf("log(%i) = %i\n", i, log10[1 << i]);
+    }
 
 /*
     Generate the fault -> syndrome table:
@@ -229,10 +280,12 @@ int main(void) {
         }
     }
 
+
+/*
     for (int pos1 = 0; pos1 < 89; ++pos1) {
         for (int err1 = 1; err1 < 32; ++err1) {
             uint32_t fault = faults[pos1][err1 - 1];
-            int solve = find_error_pos(fault, 89);
+            int solve = locate_errors2(fault, 89, 0);
             if (solve != pos1 + 1) {
                 printf("Fail: E%iP%i -> S%x\n", err1, pos1, solve);
             }
@@ -245,7 +298,7 @@ int main(void) {
             for (int pos2 = pos1 + 1; pos2 < 89; ++pos2) {
                 for (int err2 = 1; err2 < 32; ++err2) {
                     uint32_t fault = fault1 ^ faults[pos2][err2 - 1];
-                    int solve = find_error_pos(fault, 89);
+                    int solve = locate_errors2(fault, 89, 0);
                     if (solve != (((pos1 + 1) << 8) | (pos2 + 1))) {
                         printf("Fail: E%i@P%i E%iP%i -> S%x\n", err1, pos1, err2, pos2, solve);
                     }
@@ -253,4 +306,45 @@ int main(void) {
             }
         }
     }
+*/
+
+
+    int len = 10;
+
+    uint64_t iter[4][31*31*31] = {0};
+    uint64_t fail[4][31*31*31] = {0};
+    uint64_t unk[4][31*31*31] = {0};
+    #pragma omp parallel for
+    for (int es = 0; es < 31 * 31 * 31; es++) {
+        int e1 = 1 + ((es) % 31);
+        int e2 = 1 + ((es / 31) % 31);
+        int e3 = 1 + ((es / 31 / 31) % 31);
+        int non1bit = (!!(e1 & (e1-1))) + (!!(e2 & (e2-1))) + (!!(e3 & (e3-1)));
+        for (int p1 = 0; p1 < len - 2; p1++) {
+            for (int p2 = p1 + 1; p2 < len - 1; p2++) {
+                for (int p3 = p2 + 1; p3 < len; p3++) {
+                    int res = locate_errors3(faults[p1][e1 - 1] ^ faults[p2][e2 - 1] ^ faults[p3][e3 - 1], len);
+                    if (res == -1) {
+                        ++unk[non1bit][es];
+                    } else {
+                        int exp = ((1 + p1) << 16) | ((1 + p2) << 8) | (1 + p3);
+                        fail[non1bit][es] += (res != exp);
+                    }
+                    ++iter[non1bit][es];
+                }
+            }
+        }
+    }
+
+     for (int non1bit = 0; non1bit < 4; ++non1bit) {
+         uint64_t iters = 0;
+         uint64_t fails = 0;
+         uint64_t unks = 0;
+         for (int es = 0; es < 31*31*31; ++es) {
+             iters += iter[non1bit][es];
+             fails += fail[non1bit][es];
+             unks += unk[non1bit][es];
+         }
+         printf("%i non-1-bit: Unk=%llu Fails=%llu Total=%llu\n", non1bit, (unsigned long long)unks, (unsigned long long)fails, (unsigned long long)iters);
+     }
 }
