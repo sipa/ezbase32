@@ -240,6 +240,7 @@ int locate_errors3(uint32_t fault, int length)
             }
         }
         if (found == 1) return result;
+        if (found > 1) return -1;
     }
     return -1;
 }
@@ -285,7 +286,7 @@ int main(void) {
     for (int pos1 = 0; pos1 < 89; ++pos1) {
         for (int err1 = 1; err1 < 32; ++err1) {
             uint32_t fault = faults[pos1][err1 - 1];
-            int solve = locate_errors2(fault, 89, 0);
+            int solve = locate_errors2(fault, 89, 2);
             if (solve != pos1 + 1) {
                 printf("Fail: E%iP%i -> S%x\n", err1, pos1, solve);
             }
@@ -298,7 +299,7 @@ int main(void) {
             for (int pos2 = pos1 + 1; pos2 < 89; ++pos2) {
                 for (int err2 = 1; err2 < 32; ++err2) {
                     uint32_t fault = fault1 ^ faults[pos2][err2 - 1];
-                    int solve = locate_errors2(fault, 89, 0);
+                    int solve = locate_errors2(fault, 89, 2);
                     if (solve != (((pos1 + 1) << 8) | (pos2 + 1))) {
                         printf("Fail: E%i@P%i E%iP%i -> S%x\n", err1, pos1, err2, pos2, solve);
                     }
@@ -308,9 +309,9 @@ int main(void) {
     }
 */
 
+    int len = 39;
 
-    int len = 10;
-
+    int count;
     uint64_t iter[4][31*31*31] = {0};
     uint64_t fail[4][31*31*31] = {0};
     uint64_t unk[4][31*31*31] = {0};
@@ -334,6 +335,8 @@ int main(void) {
                 }
             }
         }
+        ++count;
+        printf("Finish iteration %i/29791\n", count);
     }
 
      for (int non1bit = 0; non1bit < 4; ++non1bit) {
