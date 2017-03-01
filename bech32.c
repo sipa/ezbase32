@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
+#include <stdlib.h>
 
 static uint32_t bech32_polymod_step(uint32_t pre, uint32_t encval, uint32_t decval) {
     int b = encval ^ (pre >> 25);
@@ -13,7 +15,7 @@ static uint32_t bech32_polymod_step(uint32_t pre, uint32_t encval, uint32_t decv
 }
 
 void bech32_encode(char* output, const char* hrp, size_t hrp_len, const uint8_t* data, size_t data_len) {
-    static const char* zbase32="ybndrfg8ejkmcpqxot1uwisza345h769";
+    static const char* zbase32="qpzry9x8gf2tvdw0s3jn54khce6mua7l";
     uint32_t chk = 0x3b6a57b2UL;
     size_t i;
     for (i = 0; i < hrp_len; ++i) {
@@ -38,8 +40,8 @@ void bech32_encode(char* output, const char* hrp, size_t hrp_len, const uint8_t*
 }
 
 int bech32_decode(size_t *hrp_len, uint8_t* data, size_t* data_len, char* input, size_t input_len) {
-    static const int zbase32_alpha[26] = {24,1,12,3,8,5,6,28,21,9,10,-1,11,2,16,13,14,4,22,17,19,-1,20,15,0,23};
-    static const int zbase32_num[10] = {-1,18,-1,25,26,27,30,29,7,31};
+    static const int zbase32_alpha[26] = {29,-1,24,13,25,9,8,23,-1,18,22,31,27,19,-1,1,0,3,16,11,28,12,14,6,4,2};
+    static const int zbase32_num[10] = {15,-1,10,17,21,20,26,30,7,5};
     uint32_t chk = 1;
     size_t i;
     if (input_len < 8 || input_len > 89) {
@@ -205,14 +207,23 @@ int locate_errors2(uint32_t fault, int length, int maxnon1bit)
 #define min(a,b) ((a)<(b)?(a):(b))
 #define max(a,b) ((a)>(b)?(a):(b))
 
-int locate_errors3(uint32_t fault, int length)
+int locate_errors3(uint32_t fault, int length, unsigned char* out)
 {
+    memset(out, 0, length);
     int result = locate_errors2(fault, length, 0);
+    int total = 0;
     if (result != -1) {
-        return result;
+        if (result & 0xFF) {
+            ++total;
+            ++out[(result & 0xFF) - 1];
+        }
+        if (result >> 8) {
+            ++total;
+            ++out[(result >> 8) - 1];
+        }
+        return total;
     }
     for (int non1bit = 0; non1bit < 4; ++non1bit) {
-        int found = 0;
         for (int i_e1 = 0; i_e1 < (non1bit == 3 ? 31 : 5); i_e1++) {
             int e1 = 1 << i_e1;
             if (non1bit == 3) {
@@ -224,28 +235,29 @@ int locate_errors3(uint32_t fault, int length)
 //                printf("Try: %i@%i (fault=%x) => fault=%x => res=%x\n", e1, p1, fault_e1, fault ^ fault_e1, res);
                 fault_e1 = bech32_polymod_step(fault_e1, 0, 0);
                 if (res < 0x100) continue;
-
-                int p2 = (res & 0xff) - 1;
-                int p3 = (res >> 8) - 1;
-                int ps[3];
-                ps[0] = min(min(p1, p2), p3);
-                ps[2] = max(max(p1, p2), p3);
-                ps[1] = p1 + p2 + p3 - ps[0] - ps[2];
-//                printf("* Res: %i %i %i\n", ps[0], ps[1], ps[2]);
-                int comb = ((1 + ps[0]) << 16) | ((1 + ps[1]) << 8) | (1 + ps[2]);
-                if (found == 0 || comb != result) {
-                    found++;
-                    result = comb;
-                }
+                total += (out[p1] == 0);
+                total += (out[(res & 0xff) - 1] == 0);
+                total += (out[(res >> 8) - 1] == 0);
+                ++out[p1];
+                ++out[(res & 0xff) - 1];
+                ++out[(res >> 8) - 1];
             }
         }
-        if (found == 1) return result;
-        if (found > 1) return -1;
+        if (total) {
+            return total;
+        }
     }
-    return -1;
+    return 0;
 }
 
+struct data {
+    uint64_t iter[4][31*31*31];
+    uint64_t good[4][20][31*31*31];
+    uint64_t unk[4][31*31*31];
+};
+
 int main(void) {
+    setbuf(stdout, NULL);
     logtable10();
 
     for (int i = 0; i < 5; ++i) {
@@ -309,12 +321,11 @@ int main(void) {
     }
 */
 
-    int len = 39;
+    int len = 12;
 
+    struct data *dat = malloc(sizeof(struct data));
+    memset(dat, 0, sizeof(struct data));
     int count;
-    uint64_t iter[4][31*31*31] = {0};
-    uint64_t fail[4][31*31*31] = {0};
-    uint64_t unk[4][31*31*31] = {0};
     #pragma omp parallel for
     for (int es = 0; es < 31 * 31 * 31; es++) {
         int e1 = 1 + ((es) % 31);
@@ -324,14 +335,15 @@ int main(void) {
         for (int p1 = 0; p1 < len - 2; p1++) {
             for (int p2 = p1 + 1; p2 < len - 1; p2++) {
                 for (int p3 = p2 + 1; p3 < len; p3++) {
-                    int res = locate_errors3(faults[p1][e1 - 1] ^ faults[p2][e2 - 1] ^ faults[p3][e3 - 1], len);
-                    if (res == -1) {
-                        ++unk[non1bit][es];
-                    } else {
-                        int exp = ((1 + p1) << 16) | ((1 + p2) << 8) | (1 + p3);
-                        fail[non1bit][es] += (res != exp);
+                    unsigned char vec[89];
+                    int res = locate_errors3(faults[p1][e1 - 1] ^ faults[p2][e2 - 1] ^ faults[p3][e3 - 1], len, vec);
+                    if (res == 0) {
+                        ++dat->unk[non1bit][es];
+                    } else if (res >= 3 && vec[p1] && vec[p2] && vec[p3]) {
+                        assert(res - 3 < 20);
+                        ++dat->good[non1bit][res - 3][es];
                     }
-                    ++iter[non1bit][es];
+                    ++dat->iter[non1bit][es];
                 }
             }
         }
@@ -342,12 +354,24 @@ int main(void) {
      for (int non1bit = 0; non1bit < 4; ++non1bit) {
          uint64_t iters = 0;
          uint64_t fails = 0;
+         uint64_t goods[20] = {0};
          uint64_t unks = 0;
          for (int es = 0; es < 31*31*31; ++es) {
-             iters += iter[non1bit][es];
-             fails += fail[non1bit][es];
-             unks += unk[non1bit][es];
+             iters += dat->iter[non1bit][es];
+             fails += dat->iter[non1bit][es];
+             for (int i = 0; i < 20; i++) {
+                 goods[i] += dat->good[non1bit][i][es];
+                 fails -= dat->good[non1bit][i][es];
+             }
+             unks += dat->unk[non1bit][es];
+             fails -= dat->unk[non1bit][es];
          }
-         printf("%i non-1-bit: Unk=%llu Fails=%llu Total=%llu\n", non1bit, (unsigned long long)unks, (unsigned long long)fails, (unsigned long long)iters);
+         printf("%i non-1-bit: Unk=%llu Fails=%llu Total=%llu Good=[", non1bit, (unsigned long long)unks, (unsigned long long)fails, (unsigned long long)iters);
+         for (int i = 0; i < 20; i++) {
+             printf("%llu ", (unsigned long long)goods[i]);
+         }
+         printf("]\n");
      }
+
+     free(dat);
 }
