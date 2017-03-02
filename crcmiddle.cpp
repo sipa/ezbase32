@@ -296,7 +296,7 @@ struct EndMaps {
     const CRCOutputs& outputs;
     std::vector<MutableIncMap> endmaps;
 
-    EndMaps(int errors_, const CRCOutputs& outputs_) : errors(errors_), outputs(outputs_) {}
+    EndMaps(int errors_, const CRCOutputs& outputs_) : errors(errors_), curlen(0), outputs(outputs_) {}
 
     void Extend(int len) {
         uint64_t count2 = 0;
