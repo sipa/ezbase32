@@ -18,7 +18,11 @@
 namespace {
 
 #define FIELD 9
+
+#ifndef CHECKSYMBOLS
 #define CHECKSYMBOLS 6
+#endif
+
 #define CHECKSUMBITS (CHECKSYMBOLS * 5)
 #define BASEBITS (5*(CHECKSYMBOLS-1))
 #define REQUIRE_ZEROES 0
