@@ -72,27 +72,26 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         FP.<x> = F[]
 
         # Find extension field modulus (any is fine)
+        E_modulus_list = [0 for i in range(M)]
         while True:
-            E_moduluss = polyfromarray(x, [F(1)] + randlist(M, F_all))
-            E.<e> = F.extension(E_moduluss)
-            if E_moduluss.is_primitive():
-                E_modulus = E_moduluss
+            E_modulus = polyfromarray(x, [F(1)] + [F_from_int[j] for j in E_modulus_list])
+            if E_modulus.is_primitive():
+                E.<e> = F.extension(E_modulus)
                 break
+            U = 0
+            while True:
+                E_modulus_list[M-U-1] = (E_modulus_list[M-U-1] + 1) % Q
+                if (E_modulus_list[M-U-1] != 0):
+                    break
+                U = U + 1
 
         # Find primitive element in extension field (any is fine)
-        while True:
-            E_prim = polyfromarray(e, randlist(M, F_all))
-            ok = True
-            for di in (Q**M-1).divisors():
-                if di != (Q**M-1) and (E_prim ** di) == 1:
-                    ok = False
-                    break
-            if ok:
-                break
+        E_prim = e
+        E_base = e ** (((Q**M)-1) / N)
 
         # Find c values
         cs = []
-        alpha = E_prim ** alphalogs[0]
+        alpha = E_base
         mp = []
         num = DISTANCE - 1
         alphan = 1
@@ -107,36 +106,44 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         all_generators = set()
 
         # Iterate over all alphas
-        for alphalog in alphalogs:
-            alpha = E_prim ** alphalog
+        for alphalog in range(1, N):
+            if gcd(alphalog, N) != 1:
+                continue
             # Iterate over all c values
             for c in cs:
-                roots = [ZP(c + i) * ZP(alphalog) for i in range(num)]
                 minpolyset=set()
                 minpolys=[]
                 for i in range(num):
-                    root = ZP(c + i) * ZP(alphalog)
+                    root = (c + i) * alphalog % N
                     if root in MP_cache:
                         minpoly = MP_cache[root]
                     else:
-                        minpoly = (E_prim ** root).minpoly()
+                        minpoly = (E_base ** root).minpoly()
                         MP_cache[root] = minpoly
                     minpolyset.add(minpoly)
                     minpolys.append(minpoly)
                 generator = 1
                 for minpoly in minpolyset:
                     generator *= minpoly
+                t0 = 0
+                it0 = 0
+                genlist = generator.list()
+                for p in range(generator.degree()):
+                    t0 = t0 * Q + (genlist[generator.degree()-1-p]).integer_representation()
+                    it0 = it0 * Q + (genlist[p + 1] / genlist[0]).integer_representation()
+                if t0 in all_generators:
+                    continue
+#                if it0 in all_generators:
+#                    continue
+                all_generators.add(t0)
                 table = []
                 for p in range(P):
                     j = B**p
                     n = 0
                     for p in range(generator.degree()):
-                        n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
+                        n = n * Q + (F_from_int[j] * genlist[generator.degree()-1-p]).integer_representation()
                     table.append(n)
-                if table[0] in all_generators:
-                    continue
-                all_generators.add(table[0])
-                print "GEN={%s} F_mod=%r E_mod=%r E_primitive=%r roots=%r alpha=%r alphalog=%r c=%r minpolys=%r" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in F_modulus.coefficients(sparse=False)]), E_modulus.coefficients(sparse=False), E_prim.list(), roots, alpha.list(), alphalog, c, minpolys)
+                print "GEN={%s} F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator)
         break
 
 
@@ -219,12 +226,12 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
 if False:
     Q=32
     Ns={}
-    for M in range(1,5):
+    for M in range(1,8):
       for d in (Q**M-1).divisors():
-        if d > 150 and d < 1200 and d not in Ns:
+        if d > 150 and d < 10000 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,7,12,1)
+      attempt(Q,M,N,4,6,1)
 else:
-    attempt_exhaust(2,5,2,1023,7,12)
+    attempt_exhaust(2,5,2,1023,4,6)
