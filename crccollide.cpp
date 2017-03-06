@@ -9,9 +9,9 @@
 #include <tuple>
 #include <math.h>
 
-#define DEGREE 6
-#define LENGTH 34
-#define ERRORS 4
+#define DEGREE 5
+#define LENGTH 30
+#define ERRORS 3
 #define MAX_DEFICIENCY 2
 
 
@@ -392,8 +392,8 @@ struct Result {
     int max_pos;
     int num_err;
 
-    Vector<ERRORS> err;
-    std::array<int, ERRORS> pos;
+/*    Vector<ERRORS> err;
+    std::array<int, ERRORS> pos;*/
 
     Result(const Vector<DEGREE>& fault_, int min_pos_, int max_pos_, int num_err_) : fault(fault_), min_pos(min_pos_), max_pos(max_pos_), num_err(num_err_) {}
 
@@ -446,9 +446,9 @@ void RecursePositions(int idx, int min, std::array<int, ERRORS>& pos, psol_type&
         }
         rr = rr.Transpose();
         psol.push_back(std::make_pair(pos, PartialSolve(rr)));
-        if (psol.back().second.deficiency) {
+/*        if (psol.back().second.deficiency) {
             printf("Deficient %i: %i %i %i\n", psol.back().second.deficiency, pos[0], pos[1], pos[2]);
-        }
+        }*/
         return;
     }
     for (pos[idx] = min; pos[idx] < LENGTH; ++pos[idx]) {
@@ -466,6 +466,8 @@ long double Combination(int k, int n) {
     }
     return num / den;
 }
+
+static int require_len = 0, require_err = 0;
 
 void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis) {
     if (pos == ERRORS) {
@@ -486,9 +488,7 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                         break;
                     }
                 }
-                if (!ok) {
-                    continue;
-                }
+                if (!ok) continue;
 
                 // Compute the full fault and verify it
                 Vector<DEGREE> bigfault;
@@ -497,6 +497,16 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                 }
                 for (int i = 0; i < ERRORS; ++i) {
                     assert(bigfault[i] == fault[i]);
+                }
+
+                if (allzerobefore) {
+                    for (int i = ERRORS; i < DEGREE; ++i) {
+                        if (bigfault[i] != 0) {
+                            ok = (bigfault[i] == 1);
+                            break;
+                        }
+                    }
+                    if (!ok) continue;
                 }
 
                 int num_error = 0;
@@ -512,8 +522,17 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
 
                 if (num_error == 0) continue;
                 res.emplace_back(bigfault, min_pos, max_pos, num_error);
-                res.back().err = ext_errors;
-                res.back().pos = ps.first;
+
+/*
+                int nn = 0;
+                for (int i = 0; i < ERRORS; ++i) {
+                    if (ext_errors[i]) {
+                        res.back().err[nn] = ext_errors[i];
+                        res.back().pos[nn] = ps.first[i];
+                        ++nn;
+                    }
+                }
+*/
             }
         }
         std::sort(res.begin(), res.end());
@@ -528,24 +547,25 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                     if (res[posA].num_err <= res[posB].num_err && res[posA].num_err + 1 >= res[posB].num_err && res[posA].max_pos < res[posB].min_pos) {
                         int total_err = res[posA].num_err + res[posB].num_err;
                         int length = res[posB].max_pos;
+                        if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
+                            printf("%i errors in a window of size %i\n", total_err, length + 1 - res[posA].min_pos);
+                            exit(0);
+                        }
                         errcount.Inc(total_err, length + 1);
-/*                        if (length <= 32 && total_err == 6) {
-                            Vector<DEGREE> test;
+/*
+                        if (length <= 32 && total_err == 6) {
                             auto ptr = multable.ptr(multable.div(1, res[posA].err[0]));
                             printf("Collision %i@%i %i@%i %i@%i + %i@%i %i@%i %i@%i: total=%i len=%i\n", ptr[res[posA].err[0]], res[posA].pos[0], ptr[res[posA].err[1]], res[posA].pos[1], ptr[res[posA].err[2]], res[posA].pos[2], ptr[res[posB].err[0]], res[posB].pos[0], ptr[res[posB].err[1]], res[posB].pos[1], ptr[res[posB].err[2]], res[posB].pos[2], total_err, length);
+                            Vector<DEGREE> test;
                             test.SubMul(basis[res[posA].pos[0]], res[posA].err[0]);
                             test.SubMul(basis[res[posA].pos[1]], res[posA].err[1]);
                             test.SubMul(basis[res[posA].pos[2]], res[posA].err[2]);
                             test.SubMul(basis[res[posB].pos[0]], res[posB].err[0]);
                             test.SubMul(basis[res[posB].pos[1]], res[posB].err[1]);
                             test.SubMul(basis[res[posB].pos[2]], res[posB].err[2]);
-                            assert(res[posA].pos[0] < res[posA].pos[1]);
-                            assert(res[posA].pos[1] < res[posA].pos[2]);
-                            assert(res[posA].pos[2] < res[posB].pos[0]);
-                            assert(res[posB].pos[0] < res[posB].pos[1]);
-                            assert(res[posB].pos[1] < res[posB].pos[2]);
                             assert(test.IsZero());
-                        }*/
+                        }
+*/
                     }
                 }
             }
@@ -558,11 +578,25 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
     }
 }
 
+static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+
 int main(int argc, char** argv) {
+    setbuf(stdout, NULL);
     Vector<DEGREE> gen;
-    for (int i = 1; i < argc; ++i) {
-        gen[i - 1] = strtoul(argv[i], NULL, 0);
+    if (argc < 2 || strlen(argv[1]) != DEGREE) {
+        fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
+        return 1;
     }
+    for (int i = 0; i < DEGREE; ++i) {
+        const char *ptr = strchr(charset, toupper(argv[1][DEGREE - 1 - i]));
+        if (ptr == nullptr) {
+            fprintf(stderr, "Unknown character '%c'\n", argv[1][DEGREE - 1 - i]);
+            return 1;
+        }
+        gen[i] = ptr - charset;
+    }
+    if (argc >= 3) { require_err = strtoul(argv[2], NULL, 0); }
+    if (argc >= 4) { require_len = strtoul(argv[3], NULL, 0); }
 
     basis_type basis;
     basis.resize(LENGTH);
@@ -572,8 +606,21 @@ int main(int argc, char** argv) {
         x.PolyMulXMod(gen);
     }
 
+    Matrix<DEGREE, DEGREE> rand;
+    while(true) {
+        Matrix<DEGREE, DEGREE> randi, res;
+        for (int i = 0; i < DEGREE; ++i) {
+            for (int j = 0; j < DEGREE; ++j) {
+                rand[i][j] = random() & 0x1F;
+            }
+        }
+        randi = rand;
+        int rank = randi.Invert(res);
+        if (rank == DEGREE) break;
+    }
+
     for (int i = 0; i < LENGTH; ++i) {
-        basis[i] = x;
+        basis[i] = Multiply(rand, x);
 /*        for (int j = 0; j < ERRORS; ++j) {
             printf("% 3i  ", basis[i][j]);
         }
@@ -589,9 +636,9 @@ int main(int argc, char** argv) {
     ErrCount errcount;
     RecurseShortFaults(errcount, 0, true, faults, partials, basis);
     for (int l = 1; l <= LENGTH; ++l) {
-        printf("Len %i:", l);
+        printf("%s % 4i", argv[1], l);
         for (int e = 1; e <= ERRORS*2; ++e) {
-            printf(" (%llu)% 19.15Lg", (unsigned long long)errcount.count[e][l], (long double)errcount.count[e][l] / (Combination(e, l) * powl(31.0, e - 1)) * powl(32.0, DEGREE));
+            printf(" % 19.15f", (double)(errcount.count[e][l] / (Combination(e, l) * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
         }
         printf("\n");
     }

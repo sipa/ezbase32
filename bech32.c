@@ -260,9 +260,16 @@ int main(void) {
     setbuf(stdout, NULL);
     logtable10();
 
-    for (int i = 0; i < 5; ++i) {
-        printf("log(%i) = %i\n", i, log10[1 << i]);
+    printf("static const uint16_t gf1024_exp[1024] = {");
+    for (int i = 0; i < 1024; ++i) {
+        printf("%hi, ", exp10[i]);
     }
+    printf("};\n");
+    printf("static const uint16_t gf1024_log[1024] = {");
+    for (int i = 0; i < 1024; ++i) {
+        printf("%hi, ", log10[i]);
+    }
+    printf("};\n");
 
 /*
     Generate the fault -> syndrome table:

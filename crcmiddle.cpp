@@ -415,6 +415,8 @@ bool CheckConstraint(const std::vector<Constraint>& cons, int err, int len, doub
 static std::mutex input_lock;
 static std::mutex output_lock;
 
+static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+
 void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int errors, const std::vector<Constraint>& cons) {
     assert(errors <= 255);
     uint64_t tbl[5] = {code,0,0,0,0};
@@ -470,7 +472,10 @@ void analyse(uint64_t code, int codelen, int mintestlen, int maxtestlen, int err
         }
         if (testlen >= mintestlen) {
             std::unique_lock<std::mutex> lock(output_lock);
-            printf("0x%lx % 4i", (unsigned long)tbl[0], testlen);
+            for (int i = 0; i < CHECKSYMBOLS; ++i) {
+                 printf("%c", charset[(tbl[0] >> (5 * (CHECKSYMBOLS - 1 - i))) & 0x1f]);
+            }
+            printf(" % 4i", testlen);
 #if !REQUIRE_ZEROES
             for (int i = 1; i <= errors; i++) {
                 if (i > testlen) {
@@ -503,16 +508,22 @@ int main(int argc, char** argv) {
 }
 */
 
+
 void runner(int errors, int mintestlen, int maxtestlen, const std::vector<Constraint>* cons) {
     while (1) {
-        uint64_t r;
+        uint64_t r = 0;
         {
             std::unique_lock<std::mutex> lock(input_lock);
             char c[1024];
             if (!fgets(c, sizeof(c), stdin)) {
                 break;
             }
-            r = strtoul(c, NULL, 0);
+            assert(strlen(c) >= CHECKSYMBOLS && isspace(c[CHECKSYMBOLS]));
+            for (int i = 0; i < CHECKSYMBOLS; ++i) {
+                const char* ptr = strchr(charset, toupper(c[i]));
+                assert(ptr != nullptr);
+                r = (r << 5) | (ptr - charset);
+            }
             assert((r >> CHECKSUMBITS) == 0);
         }
         analyse(r, maxtestlen, mintestlen, maxtestlen, errors, *cons);

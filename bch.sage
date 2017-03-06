@@ -1,5 +1,31 @@
 import random
 
+def swapgen(gen):
+  coefs = gen.list()
+  degree = gen.degree()
+  var = gen.parent().gen()
+  return sum(coefs[degree-i] * var^i for i in range(degree+1)) / coefs[0]
+
+def expand(gen,F):
+  ret = []
+  var = gen.parent().gen()
+  tgen = swapgen(gen)
+  for m in range(1,32):
+      for pow in [1,2,4,8,16]:
+          ret.append(gen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
+          ret.append(tgen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
+  return ret
+
+CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
+
+def base32repr(gen):
+    gens = ""
+    genlist = gen.list()
+    degree = gen.degree()
+    for p in range(degree):
+        gens += CHARSET[(genlist[degree-1-p]).integer_representation()]
+    return gens
+
 def randlist(n, all):
     ret = []
     for i in range(n):
@@ -39,7 +65,10 @@ used_F = {}
 found = 0
 used_E = {}
 
+
+
 def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
+    fil = open("deg%i_len%i_hd%i" % (DEGREE, N, DISTANCE), 'w')
     Q = B**P
     format_len = int(math.ceil(log(B**(P*DEGREE)-1) /log(16)))
     assert(((Q**M)-1) % N == 0)
@@ -104,6 +133,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     cs.append(i-num+1)
 
         all_generators = set()
+        all_generators_exp = dict()
 
         # Iterate over all alphas
         for alphalog in range(1, N):
@@ -125,25 +155,17 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 generator = 1
                 for minpoly in minpolyset:
                     generator *= minpoly
-                t0 = 0
-                it0 = 0
-                genlist = generator.list()
-                for p in range(generator.degree()):
-                    t0 = t0 * Q + (genlist[generator.degree()-1-p]).integer_representation()
-                    it0 = it0 * Q + (genlist[p + 1] / genlist[0]).integer_representation()
-                if t0 in all_generators:
+                gens = base32repr(generator)
+                if gens in all_generators:
                     continue
-#                if it0 in all_generators:
-#                    continue
-                all_generators.add(t0)
-                table = []
-                for p in range(P):
-                    j = B**p
-                    n = 0
-                    for p in range(generator.degree()):
-                        n = n * Q + (F_from_int[j] * genlist[generator.degree()-1-p]).integer_representation()
-                    table.append(n)
-                print "GEN={%s} F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)" % (' '.join(['{0:#0{1}x}'.format(t, format_len + 2) for t in table]), polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator)
+                dupof = None
+                if gens in all_generators_exp:
+                    dupof = all_generators_exp[gens]
+                all_generators.add(gens)
+                if not dupof:
+                    for exp in expand(generator, F):
+                        all_generators_exp[base32repr(exp)] = gens
+                fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
         break
 
 
@@ -209,13 +231,11 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
         if (i >= num):
             generator=lcm(mp[-num:])
             if (generator.degree() <= DEGREE):
-                table=[]
-                for j in range(Q):
-                    n = 0
-                    for p in range(generator.degree()):
-                        n = n * Q + (F_from_int[j] * generator.list()[generator.degree()-1-p]).integer_representation()
-                    table.append(n)
-                print "      * TABLE: {%s}, // N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (' '.join(["0x%08x" % table[v] for v in [1,2,4,8,16]]), N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
+                genlist = generator.list()
+                gens = ""
+                for p in range(generator.degree()):
+                    gens += CHARSET[(genlist[generator.degree()-1-p]).integer_representation()]
+                print "      * GEN=%s N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (gens, N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
                 find += 1
                 if (find == max):
                     return find
@@ -226,12 +246,14 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
 if False:
     Q=32
     Ns={}
-    for M in range(1,8):
+    for M in range(1,4):
       for d in (Q**M-1).divisors():
         if d > 150 and d < 10000 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,4,6,1)
+      attempt(Q,M,N,172,300,1)
 else:
-    attempt_exhaust(2,5,2,1023,4,6)
+    for (E,L) in [(2,1023),(2,341),(2,93),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
+        for (DIST,DEG) in [(7,12),(6,12),(5,6),(4,6)]:
+            attempt_exhaust(2,5,E,L,DIST,DEG)
