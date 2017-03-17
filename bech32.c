@@ -271,6 +271,23 @@ int main(void) {
     }
     printf("};\n");
 
+    printf("static const uint8_t gf32_exp[32] = {");
+    int log2 = log10[2];
+    for (int i = 0; i < 32; ++i) {
+        printf("%hi, ", exp10[(log2 * i) % 1023]);
+    }
+    printf("};\n");
+    printf("static const uint8_t gf32_log[32] = {-1");
+    for (int i = 1; i < 32; ++i) {
+        for (int j = 0; j < 32; ++j) {
+            if (((log10[i] + 1023*j) % log2) == 0) {
+                printf(", %hi", (log10[i] + 1023*j) / log2);
+                break;
+            }
+        }
+    }
+    printf("};\n");
+
 /*
     Generate the fault -> syndrome table:
 

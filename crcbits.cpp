@@ -184,7 +184,7 @@ public:
     }
 };
 
-#define LEN 59
+#define LEN 71
 #define LENBITS 9
 
 #define MINSYM 5
@@ -193,7 +193,7 @@ public:
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 // #define CHECKSUMS 180
 
-#define MINERR 6
+#define MINERR 5
 #define MAXERR 6
 
 

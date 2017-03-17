@@ -9,9 +9,9 @@
 #include <tuple>
 #include <math.h>
 
-#define DEGREE 5
-#define LENGTH 30
-#define ERRORS 3
+#define DEGREE 6
+#define LENGTH 3000
+#define ERRORS 2
 #define MAX_DEFICIENCY 2
 
 
