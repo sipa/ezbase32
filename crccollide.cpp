@@ -8,12 +8,16 @@
 #include <array>
 #include <tuple>
 #include <math.h>
+#include <thread>
+#include <mutex>
+#include <unistd.h>
+#include <atomic>
 
 #define DEGREE 6
-#define LENGTH 3000
-#define ERRORS 2
+#define LENGTH 39
+#define ERRORS 5
 #define MAX_DEFICIENCY 2
-
+#define THREADS 8
 
 static inline uint64_t reduce2(uint64_t x) {
     uint64_t high = (x & 0xE0E0E0E0E0E0E0E0ULL) >> 5;
@@ -424,8 +428,9 @@ typedef std::vector<std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>>
 
 struct ErrCount {
     uint64_t count[2*ERRORS+1][LENGTH + 1];
+    uint64_t total;
 
-    ErrCount() {
+    ErrCount() : total(0) {
         memset(count, 0, sizeof(count));
     }
 
@@ -435,6 +440,15 @@ struct ErrCount {
         for (int len = length; len < LENGTH + 1; ++len) {
             ++count[errors][len];
         }
+    }
+
+    void operator+=(const ErrCount& e) {
+        for (int c = 0; c < 2*ERRORS+1; ++c) {
+            for (int l = 0; l < LENGTH + 1; ++l) {
+                count[c][l] += e.count[c][l];
+            }
+        }
+        total += e.total;
     }
 };
 
@@ -469,8 +483,14 @@ long double Combination(int k, int n) {
 
 static int require_len = 0, require_err = 0;
 
-void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis) {
+static std::atomic<bool> quitting(false);
+static std::mutex results_mutex;
+static ErrCount results;
+
+void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash) {
     if (pos == ERRORS) {
+        if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return;
+        ErrCount errcount;
         result_type res;
         for (const auto& ps : psol) {
             Vector<ERRORS> base_errors;
@@ -489,6 +509,7 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                     }
                 }
                 if (!ok) continue;
+
 
                 // Compute the full fault and verify it
                 Vector<DEGREE> bigfault;
@@ -521,6 +542,7 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                 }
 
                 if (num_error == 0) continue;
+                ++errcount.total;
                 res.emplace_back(bigfault, min_pos, max_pos, num_error);
 
 /*
@@ -570,15 +592,49 @@ void RecurseShortFaults(ErrCount& errcount, int pos, bool allzerobefore, Vector<
                 }
             }
         }
+        {
+            std::unique_lock<std::mutex> lock(results_mutex);
+            results += errcount;
+        }
         return;
     }
     int max = allzerobefore ? 2 : 32;
     for (fault[pos] = 0; fault[pos] < max; ++fault[pos]) {
-        RecurseShortFaults(errcount, pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis);
+        RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos]);
     }
 }
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+
+void run_thread(const psol_type& partials, const basis_type& basis, int part) {
+    Vector<ERRORS> faults;
+    RecurseShortFaults(0, true, faults, partials, basis, part, 0);
+}
+
+static long double total_comb() {
+    long double ret = 0;
+    for (int i = 1; i <= ERRORS; ++i) {
+        ret += Combination(i, LENGTH) * powl(31, i - 1);
+    }
+    return ret;
+}
+
+void stat_thread(const char* code) {
+    while (true) {
+        sleep(10);
+        std::unique_lock<std::mutex> lock(results_mutex);
+        static const long double denom = 1.0L / total_comb();
+        long double frac = results.total * denom;
+        for (int l = 1; l <= LENGTH; ++l) {
+            printf("%s % 4i", code, l);
+            for (int e = 1; e <= ERRORS*2; ++e) {
+                printf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
+            }
+            printf("  # %Lg%% done\n", frac * 100.0L);
+        }
+        if (quitting.load()) return;
+    }
+}
 
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
@@ -629,18 +685,20 @@ int main(int argc, char** argv) {
     }
 
     psol_type partials;
-    std::array<int, ERRORS> pos;
-    RecursePositions(0, 0, pos, partials, basis);
-
-    Vector<ERRORS> faults;
-    ErrCount errcount;
-    RecurseShortFaults(errcount, 0, true, faults, partials, basis);
-    for (int l = 1; l <= LENGTH; ++l) {
-        printf("%s % 4i", argv[1], l);
-        for (int e = 1; e <= ERRORS*2; ++e) {
-            printf(" % 19.15f", (double)(errcount.count[e][l] / (Combination(e, l) * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
-        }
-        printf("\n");
+    {
+        std::array<int, ERRORS> pos;
+        RecursePositions(0, 0, pos, partials, basis);
     }
+
+    std::vector<std::thread> t;
+    for (int part = 0; part < THREADS; ++part) {
+        t.emplace_back(&run_thread, partials, basis, part);
+    }
+    std::thread th(&stat_thread, argv[1]);
+    for (int part = 0; part < THREADS; ++part) {
+        t[part].join();
+    }
+    quitting.store(true);
+    th.join();
     return 0;
 }
