@@ -12,10 +12,11 @@
 #include <mutex>
 #include <unistd.h>
 #include <atomic>
+#include <condition_variable>
 
-#define DEGREE 6
-#define LENGTH 39
-#define ERRORS 5
+#define DEGREE 12
+#define LENGTH 65
+#define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
@@ -483,11 +484,14 @@ long double Combination(int k, int n) {
 
 static int require_len = 0, require_err = 0;
 
-static std::atomic<bool> quitting(false);
+static std::mutex quit_mutex;
+static std::condition_variable quit_signal;
+static bool quitting(false);
+
 static std::mutex results_mutex;
 static ErrCount results;
 
-void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash) {
+void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, const char *code) {
     if (pos == ERRORS) {
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return;
         ErrCount errcount;
@@ -570,7 +574,7 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         int total_err = res[posA].num_err + res[posB].num_err;
                         int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
-                            printf("%i errors in a window of size %i\n", total_err, length + 1 - res[posA].min_pos);
+                            printf("%s: %i errors in a window of size %i\n", code, total_err, length + 1 - res[posA].min_pos);
                             exit(0);
                         }
                         errcount.Inc(total_err, length + 1);
@@ -600,15 +604,15 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     }
     int max = allzerobefore ? 2 : 32;
     for (fault[pos] = 0; fault[pos] < max; ++fault[pos]) {
-        RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos]);
+        RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], code);
     }
 }
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-void run_thread(const psol_type& partials, const basis_type& basis, int part) {
+void run_thread(const psol_type* partials, const basis_type* basis, int part, const char* code) {
     Vector<ERRORS> faults;
-    RecurseShortFaults(0, true, faults, partials, basis, part, 0);
+    RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, code);
 }
 
 static long double total_comb() {
@@ -619,9 +623,16 @@ static long double total_comb() {
     return ret;
 }
 
+using namespace std::chrono_literals;
+
 void stat_thread(const char* code) {
     while (true) {
-        sleep(10);
+        bool quit = false;
+        {
+            std::unique_lock<std::mutex> lock(quit_mutex);
+            quit_signal.wait_for(lock, 60000ms, []{return quitting;});
+            quit = quitting;
+        }
         std::unique_lock<std::mutex> lock(results_mutex);
         static const long double denom = 1.0L / total_comb();
         long double frac = results.total * denom;
@@ -632,7 +643,7 @@ void stat_thread(const char* code) {
             }
             printf("  # %Lg%% done\n", frac * 100.0L);
         }
-        if (quitting.load()) return;
+        if (quit) return;
     }
 }
 
@@ -692,13 +703,17 @@ int main(int argc, char** argv) {
 
     std::vector<std::thread> t;
     for (int part = 0; part < THREADS; ++part) {
-        t.emplace_back(&run_thread, partials, basis, part);
+        t.emplace_back(&run_thread, &partials, &basis, part, argv[1]);
     }
     std::thread th(&stat_thread, argv[1]);
     for (int part = 0; part < THREADS; ++part) {
         t[part].join();
     }
-    quitting.store(true);
+    {
+        std::unique_lock<std::mutex> lock(quit_mutex);
+        quitting = true;
+        quit_signal.notify_all();
+    }
     th.join();
     return 0;
 }
