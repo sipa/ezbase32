@@ -13,10 +13,11 @@
 #include <unistd.h>
 #include <atomic>
 #include <condition_variable>
+#include <set>
 
-#define DEGREE 12
-#define LENGTH 65
-#define ERRORS 4
+#define DEGREE 6
+#define LENGTH 71
+#define ERRORS 3
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
@@ -396,6 +397,7 @@ struct Result {
     int min_pos;
     int max_pos;
     int num_err;
+    int pos[ERRORS];
 
 /*    Vector<ERRORS> err;
     std::array<int, ERRORS> pos;*/
@@ -548,17 +550,13 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                 if (num_error == 0) continue;
                 ++errcount.total;
                 res.emplace_back(bigfault, min_pos, max_pos, num_error);
-
-/*
                 int nn = 0;
                 for (int i = 0; i < ERRORS; ++i) {
                     if (ext_errors[i]) {
-                        res.back().err[nn] = ext_errors[i];
                         res.back().pos[nn] = ps.first[i];
                         ++nn;
                     }
                 }
-*/
             }
         }
         std::sort(res.begin(), res.end());
@@ -574,7 +572,14 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         int total_err = res[posA].num_err + res[posB].num_err;
                         int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
-                            printf("%s: %i errors in a window of size %i\n", code, total_err, length + 1 - res[posA].min_pos);
+                            printf("%s: %i errors in a window of size %i: ", code, total_err, length + 1 - res[posA].min_pos);
+                            for (int nn = 0; nn < res[posA].num_err; ++nn) {
+                                printf("%i ", res[posA].pos[nn] - res[posA].min_pos);
+                            }
+                            for (int nn = 0; nn < res[posB].num_err; ++nn) {
+                                printf("%i ", res[posB].pos[nn] - res[posA].min_pos);
+                            }
+                            printf("\n");
                             exit(0);
                         }
                         errcount.Inc(total_err, length + 1);
@@ -650,6 +655,7 @@ void stat_thread(const char* code) {
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
     Vector<DEGREE> gen;
+    std::set<int> badpos = {};
     if (argc < 2 || strlen(argv[1]) != DEGREE) {
         fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
         return 1;
@@ -686,6 +692,7 @@ int main(int argc, char** argv) {
         if (rank == DEGREE) break;
     }
 
+    int count = 0;
     for (int i = 0; i < LENGTH; ++i) {
         basis[i] = Multiply(rand, x);
 /*        for (int j = 0; j < ERRORS; ++j) {
@@ -693,6 +700,11 @@ int main(int argc, char** argv) {
         }
         printf("\n");*/
         x.PolyMulXMod(gen);
+        ++count;
+        while (badpos.count(count)) {
+            x.PolyMulXMod(gen);
+            ++count;
+        }
     }
 
     psol_type partials;
