@@ -16,8 +16,8 @@
 #include <set>
 
 #define DEGREE 6
-#define LENGTH 71
-#define ERRORS 3
+#define LENGTH 1024
+#define ERRORS 2
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
@@ -655,7 +655,6 @@ void stat_thread(const char* code) {
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
     Vector<DEGREE> gen;
-    std::set<int> badpos = {};
     if (argc < 2 || strlen(argv[1]) != DEGREE) {
         fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
         return 1;
@@ -692,7 +691,6 @@ int main(int argc, char** argv) {
         if (rank == DEGREE) break;
     }
 
-    int count = 0;
     for (int i = 0; i < LENGTH; ++i) {
         basis[i] = Multiply(rand, x);
 /*        for (int j = 0; j < ERRORS; ++j) {
@@ -700,11 +698,6 @@ int main(int argc, char** argv) {
         }
         printf("\n");*/
         x.PolyMulXMod(gen);
-        ++count;
-        while (badpos.count(count)) {
-            x.PolyMulXMod(gen);
-            ++count;
-        }
     }
 
     psol_type partials;
