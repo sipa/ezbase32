@@ -185,16 +185,16 @@ public:
 };
 
 #define LEN 71
-#define LENBITS 9
+#define LENBITS 7
 
-#define MINSYM 5
+#define MAX_BITS_PER_SYM 1
 
 #define CHECKSUMS (sizeof(tbl)/sizeof(tbl[0]))
 // #define CHECKSUMS (sizeof(checksums)/sizeof(checksums[0]))
 // #define CHECKSUMS 180
 
 #define MINERR 5
-#define MAXERR 6
+#define MAXERR 7
 
 
 struct CRCOutputs {
@@ -236,26 +236,19 @@ void test(int errors, uint64_t loop, Results* ret, Rander& rng, const std::set<i
     Results res = {};
     for (uint64_t i = 0; i < loop; i++) {
         uint32_t crc[CHECKSUMS] = {0};
-        char biterrs[LEN * 5] = {0};
         char symerrs[LEN] = {0};
-        int syms = 0;
-        for (int j = 0; j < errors && syms + errors - j >= MINSYM; j++) {
+        for (int j = 0; j < errors; j++) {
             while (true) {
-                int bitpos = rng.GetInt(LEN * 5, LENBITS);
-                if (biterrs[bitpos]) continue;
-                int sympos = bitpos / 5;
-                syms += 1 ^ symerrs[sympos];
-                biterrs[bitpos] = 1;
+                int sympos = rng.GetInt(LEN, LENBITS);
+                if (symerrs[sympos]) continue;
+                int biterr = rng.GetInt(5, 3);
                 symerrs[sympos] = 1;
 //                for (int c : which) {
                 int c = 0;
-                    crc[c] ^= outputs.val[sympos][bitpos % 5][c];
+                    crc[c] ^= outputs.val[sympos][biterr][c];
 //                }
                 break;
             }
-        }
-        if (syms < MINSYM) {
-            continue;
         }
         for (int c : which) {
             res.fails[c] += (crc[c] == 0);

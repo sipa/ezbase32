@@ -244,15 +244,15 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
 #                print "      * POLY of degree %i" % generator.degree()
 
 if True:
-    Q=32
+    Q=1024
     Ns={}
-    for M in range(1,5):
+    for M in range(1,2):
       for d in (Q**M-1).divisors():
         if d > 300 and d < 350 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,5,7,1)
+      attempt(Q,M,N,4,3,1)
 else:
     for (E,L) in [(2,1023),(2,341),(2,93),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
         for (DIST,DEG) in [(7,12),(6,12),(5,6),(4,6)]:
