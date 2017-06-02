@@ -15,9 +15,10 @@
 #include <condition_variable>
 #include <set>
 
+#define POLYLEN 12
 #define DEGREE 6
-#define LENGTH 1024
-#define ERRORS 2
+#define LENGTH 120
+#define ERRORS 3
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
@@ -654,15 +655,15 @@ void stat_thread(const char* code) {
 
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
-    Vector<DEGREE> gen;
-    if (argc < 2 || strlen(argv[1]) != DEGREE) {
-        fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
+    Vector<POLYLEN> gen;
+    if (argc < 2 || strlen(argv[1]) != POLYLEN) {
+        fprintf(stderr, "Usage: %s GEN%i\n", argv[0], POLYLEN);
         return 1;
     }
-    for (int i = 0; i < DEGREE; ++i) {
-        const char *ptr = strchr(charset, toupper(argv[1][DEGREE - 1 - i]));
+    for (int i = 0; i < POLYLEN; ++i) {
+        const char *ptr = strchr(charset, toupper(argv[1][POLYLEN - 1 - i]));
         if (ptr == nullptr) {
-            fprintf(stderr, "Unknown character '%c'\n", argv[1][DEGREE - 1 - i]);
+            fprintf(stderr, "Unknown character '%c'\n", argv[1][POLYLEN - 1 - i]);
             return 1;
         }
         gen[i] = ptr - charset;
@@ -672,9 +673,9 @@ int main(int argc, char** argv) {
 
     basis_type basis;
     basis.resize(LENGTH);
-    Vector<DEGREE> x;
+    Vector<POLYLEN> x;
     x[0] = 1;
-    for (int i = 0; i < DEGREE; ++i) {
+    for (int i = 0; i < POLYLEN; ++i) {
         x.PolyMulXMod(gen);
     }
 
@@ -692,7 +693,7 @@ int main(int argc, char** argv) {
     }
 
     for (int i = 0; i < LENGTH; ++i) {
-        basis[i] = Multiply(rand, x);
+        basis[i] = Multiply(rand, x.Low<DEGREE>());
 /*        for (int j = 0; j < ERRORS; ++j) {
             printf("% 3i  ", basis[i][j]);
         }
