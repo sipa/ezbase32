@@ -15,6 +15,8 @@
 #include <condition_variable>
 #include <set>
 
+#include "tinyformat.h"
+
 #define NUMCODES 2
 #define POLYLEN 12
 #define DEGREE 12
@@ -574,14 +576,16 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         int total_err = res[posA].num_err + res[posB].num_err;
                         int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
-                            printf("%s: %i errors in a window of size %i: ", code, total_err, length + 1 - res[posA].min_pos);
+                            std::string line;
+                            line += strprintf("%s: %i errors in a window of size %i: ", code, total_err, length + 1 - res[posA].min_pos);
                             for (int nn = 0; nn < res[posA].num_err; ++nn) {
-                                printf("%i ", res[posA].pos[nn] - res[posA].min_pos);
+                                line += strprintf("%i ", res[posA].pos[nn] - res[posA].min_pos);
                             }
                             for (int nn = 0; nn < res[posB].num_err; ++nn) {
-                                printf("%i ", res[posB].pos[nn] - res[posA].min_pos);
+                                line += strprintf("%i ", res[posB].pos[nn] - res[posA].min_pos);
                             }
-                            printf("\n");
+                            line += '\n';
+                            printf("%s", line.c_str());
                             exit(0);
                         }
                         errcount.Inc(total_err, length + 1);
@@ -644,11 +648,13 @@ void stat_thread(const char* code) {
         static const long double denom = 1.0L / total_comb();
         long double frac = results.total * denom;
         for (int l = 1; l <= LENGTH; ++l) {
-            printf("%s % 4i", code, l);
+            std::string line;
+            line += strprintf("%s % 4i", code, l);
             for (int e = 1; e <= ERRORS*2; ++e) {
-                printf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
+                line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
             }
-            printf("  # %Lg%% done\n", frac * 100.0L);
+            line += strprintf("  # %Lg%% done\n", frac * 100.0L);
+            printf("%s", line.c_str());
         }
         if (quit) return;
     }
