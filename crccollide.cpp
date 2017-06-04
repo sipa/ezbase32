@@ -15,10 +15,11 @@
 #include <condition_variable>
 #include <set>
 
+#define NUMCODES 2
 #define POLYLEN 12
-#define DEGREE 6
-#define LENGTH 120
-#define ERRORS 3
+#define DEGREE 12
+#define LENGTH 65
+#define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
@@ -655,18 +656,24 @@ void stat_thread(const char* code) {
 
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
-    Vector<POLYLEN> gen;
-    if (argc < 2 || strlen(argv[1]) != POLYLEN) {
-        fprintf(stderr, "Usage: %s GEN%i\n", argv[0], POLYLEN);
+    Vector<POLYLEN> gen[NUMCODES];
+    if (argc < 2 || strlen(argv[1]) != (POLYLEN + 1) * NUMCODES - 1) {
+        fprintf(stderr, "Usage: %s GEN%i,...x%i\n", argv[0], POLYLEN, NUMCODES);
         return 1;
     }
-    for (int i = 0; i < POLYLEN; ++i) {
-        const char *ptr = strchr(charset, toupper(argv[1][POLYLEN - 1 - i]));
-        if (ptr == nullptr) {
-            fprintf(stderr, "Unknown character '%c'\n", argv[1][POLYLEN - 1 - i]);
+    for (int c = 0; c < NUMCODES; ++c) {
+        if (c && argv[1][(POLYLEN + 1) * c - 1] != ',') {
+            fprintf(stderr, "Comma expected: '%c'\n", argv[1][(POLYLEN + 1) * c - 1]);
             return 1;
         }
-        gen[i] = ptr - charset;
+        for (int i = 0; i < POLYLEN; ++i) {
+            const char *ptr = strchr(charset, toupper(argv[1][(POLYLEN + 1) * c + POLYLEN - 1 - i]));
+            if (ptr == nullptr) {
+                fprintf(stderr, "Unknown character '%c'\n", argv[1][(POLYLEN + 1) * c + POLYLEN - 1 - i]);
+                return 1;
+            }
+            gen[c][i] = ptr - charset;
+        }
     }
     if (argc >= 3) { require_err = strtoul(argv[2], NULL, 0); }
     if (argc >= 4) { require_len = strtoul(argv[3], NULL, 0); }
@@ -675,9 +682,6 @@ int main(int argc, char** argv) {
     basis.resize(LENGTH);
     Vector<POLYLEN> x;
     x[0] = 1;
-    for (int i = 0; i < POLYLEN; ++i) {
-        x.PolyMulXMod(gen);
-    }
 
     Matrix<DEGREE, DEGREE> rand;
     while(true) {
@@ -698,7 +702,7 @@ int main(int argc, char** argv) {
             printf("% 3i  ", basis[i][j]);
         }
         printf("\n");*/
-        x.PolyMulXMod(gen);
+        x.PolyMulXMod(gen[i % NUMCODES]);
     }
 
     psol_type partials;
