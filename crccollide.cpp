@@ -17,7 +17,8 @@
 
 #include "tinyformat.h"
 
-#define NUMCODES 2
+#define RANDOMIZE_ON_ERROR 1
+#define NUMCODES 1
 #define POLYLEN 12
 #define DEGREE 12
 #define LENGTH 65
@@ -490,19 +491,24 @@ long double Combination(int k, int n) {
 
 static int require_len = 0, require_err = 0;
 
-static std::mutex quit_mutex;
-static std::condition_variable quit_signal;
-static bool quitting(false);
-
 static std::mutex results_mutex;
 static ErrCount results;
 
-void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, const char *code) {
+struct ErrorLocations {
+    int errors;
+    int pos[ERRORS * 2];
+    std::mutex mutex;
+};
+
+static std::string code;
+
+bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, std::atomic<bool>& abort, ErrorLocations& err) {
     if (pos == ERRORS) {
-        if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return;
+        if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
         ErrCount errcount;
         result_type res;
         for (const auto& ps : psol) {
+            if (abort.load(std::memory_order_relaxed)) return false;
             Vector<ERRORS> base_errors;
             uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
             for (uint64_t sol = 0; sol < solcount; ++sol) {
@@ -565,6 +571,7 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         }
         std::sort(res.begin(), res.end());
         for (size_t pos = 0; pos < res.size(); ++pos) {
+            if (abort.load(std::memory_order_relaxed)) return false;
             size_t pos1 = pos;
             auto &key = res[pos].fault;
             while (pos + 1 < res.size() && key == res[pos + 1].fault) {
@@ -574,35 +581,25 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                 for (size_t posB = posA + 1; posB <= pos; ++posB) {
                     if (res[posA].num_err <= res[posB].num_err && res[posA].num_err + 1 >= res[posB].num_err && res[posA].max_pos < res[posB].min_pos) {
                         int total_err = res[posA].num_err + res[posB].num_err;
-                        int length = res[posB].max_pos;
+                        const int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
                             std::string line;
-                            line += strprintf("%s: %i errors in a window of size %i: ", code, total_err, length + 1 - res[posA].min_pos);
+                            std::unique_lock<std::mutex> lock(err.mutex);
+                            abort.store(true, std::memory_order_relaxed);
+                            line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), total_err, length + 1 - res[posA].min_pos);
                             for (int nn = 0; nn < res[posA].num_err; ++nn) {
-                                line += strprintf("%i ", res[posA].pos[nn] - res[posA].min_pos);
+                                line += strprintf("%i ", res[posA].pos[nn]);
+                                err.pos[err.errors++] = res[posA].pos[nn];
                             }
                             for (int nn = 0; nn < res[posB].num_err; ++nn) {
-                                line += strprintf("%i ", res[posB].pos[nn] - res[posA].min_pos);
+                                line += strprintf("%i ", res[posB].pos[nn]);
+                                err.pos[err.errors++] = res[posB].pos[nn];
                             }
                             line += '\n';
                             printf("%s", line.c_str());
-                            exit(0);
+                            return false;
                         }
                         errcount.Inc(total_err, length + 1);
-/*
-                        if (length <= 32 && total_err == 6) {
-                            auto ptr = multable.ptr(multable.div(1, res[posA].err[0]));
-                            printf("Collision %i@%i %i@%i %i@%i + %i@%i %i@%i %i@%i: total=%i len=%i\n", ptr[res[posA].err[0]], res[posA].pos[0], ptr[res[posA].err[1]], res[posA].pos[1], ptr[res[posA].err[2]], res[posA].pos[2], ptr[res[posB].err[0]], res[posB].pos[0], ptr[res[posB].err[1]], res[posB].pos[1], ptr[res[posB].err[2]], res[posB].pos[2], total_err, length);
-                            Vector<DEGREE> test;
-                            test.SubMul(basis[res[posA].pos[0]], res[posA].err[0]);
-                            test.SubMul(basis[res[posA].pos[1]], res[posA].err[1]);
-                            test.SubMul(basis[res[posA].pos[2]], res[posA].err[2]);
-                            test.SubMul(basis[res[posB].pos[0]], res[posB].err[0]);
-                            test.SubMul(basis[res[posB].pos[1]], res[posB].err[1]);
-                            test.SubMul(basis[res[posB].pos[2]], res[posB].err[2]);
-                            assert(test.IsZero());
-                        }
-*/
                     }
                 }
             }
@@ -611,20 +608,25 @@ void RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
             std::unique_lock<std::mutex> lock(results_mutex);
             results += errcount;
         }
-        return;
+        return true;
     }
     int max = allzerobefore ? 2 : 32;
     for (fault[pos] = 0; fault[pos] < max; ++fault[pos]) {
-        RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], code);
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], abort, err)) {
+            return false;
+        }
     }
+    return true;
 }
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-void run_thread(const psol_type* partials, const basis_type* basis, int part, const char* code) {
+void run_thread(const psol_type* partials, const basis_type* basis, int part, std::atomic<bool>* aborter, ErrorLocations* locs) {
     Vector<ERRORS> faults;
-    RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, code);
+    (void)RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, *aborter, *locs);
 }
+
+using namespace std::chrono_literals;
 
 static long double total_comb() {
     long double ret = 0;
@@ -634,22 +636,16 @@ static long double total_comb() {
     return ret;
 }
 
-using namespace std::chrono_literals;
-
-void stat_thread(const char* code) {
+void stat_thread() {
     while (true) {
         bool quit = false;
-        {
-            std::unique_lock<std::mutex> lock(quit_mutex);
-            quit_signal.wait_for(lock, 60000ms, []{return quitting;});
-            quit = quitting;
-        }
+        std::this_thread::sleep_for(60000ms);
         std::unique_lock<std::mutex> lock(results_mutex);
         static const long double denom = 1.0L / total_comb();
         long double frac = results.total * denom;
         for (int l = 1; l <= LENGTH; ++l) {
             std::string line;
-            line += strprintf("%s % 4i", code, l);
+            line += strprintf("%s % 4i", code.c_str(), l);
             for (int e = 1; e <= ERRORS*2; ++e) {
                 line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
             }
@@ -660,7 +656,34 @@ void stat_thread(const char* code) {
     }
 }
 
+bool testalot(const psol_type* partials, const basis_type* basis, ErrorLocations* locs) {
+    {
+        std::unique_lock<std::mutex> lock(results_mutex);
+        results = ErrCount();
+    }
+    std::atomic<bool> aborter{false};
+    std::vector<std::thread> t;
+    for (int part = 0; part < THREADS; ++part) {
+        t.emplace_back(&run_thread, partials, basis, part, &aborter, locs);
+    }
+    for (int part = 0; part < THREADS; ++part) {
+        t[part].join();
+    }
+    return !aborter.load();
+}
+
+std::string namecode(const Vector<DEGREE>& v) {
+   std::string ret;
+   ret.resize(DEGREE);
+   for (int d = 0; d < DEGREE; ++d) {
+       ret[d] = charset[v[d]];
+   }
+   return ret;
+}
+
+
 int main(int argc, char** argv) {
+    srandom(time(NULL));
     setbuf(stdout, NULL);
     Vector<POLYLEN> gen[NUMCODES];
     if (argc < 2 || strlen(argv[1]) != (POLYLEN + 1) * NUMCODES - 1) {
@@ -702,8 +725,14 @@ int main(int argc, char** argv) {
         if (rank == DEGREE) break;
     }
 
+    std::vector<std::string> codes;
+    codes.resize(LENGTH);
+    code = std::string(argv[1]);
+
     for (int i = 0; i < LENGTH; ++i) {
-        basis[i] = Multiply(rand, x.Low<DEGREE>());
+        Vector<DEGREE> base = x.Low<DEGREE>();
+        codes[i] = namecode(base);
+        basis[i] = Multiply(rand, base);
 /*        for (int j = 0; j < ERRORS; ++j) {
             printf("% 3i  ", basis[i][j]);
         }
@@ -711,25 +740,43 @@ int main(int argc, char** argv) {
         x.PolyMulXMod(gen[i % NUMCODES]);
     }
 
-    psol_type partials;
-    {
-        std::array<int, ERRORS> pos;
-        RecursePositions(0, 0, pos, partials, basis);
-    }
+    std::thread th(&stat_thread);
 
-    std::vector<std::thread> t;
-    for (int part = 0; part < THREADS; ++part) {
-        t.emplace_back(&run_thread, &partials, &basis, part, argv[1]);
-    }
-    std::thread th(&stat_thread, argv[1]);
-    for (int part = 0; part < THREADS; ++part) {
-        t[part].join();
-    }
-    {
-        std::unique_lock<std::mutex> lock(quit_mutex);
-        quitting = true;
-        quit_signal.notify_all();
-    }
+    do {
+        psol_type partials;
+        {
+            std::array<int, ERRORS> pos;
+            RecursePositions(0, 0, pos, partials, basis);
+        }
+
+        ErrorLocations locs;
+        locs.errors = 0;
+        testalot(&partials, &basis, &locs);
+        if (locs.errors == 0) break;
+        Vector<DEGREE> rv;
+        for (int j = 0; j < DEGREE; ++j) {
+            rv[j] = random() & 0x1F;
+        }
+
+        int pos;
+        do {
+            pos = locs.pos[random() % locs.errors];
+        } while (pos < DEGREE);
+        codes[pos] = namecode(rv);
+        basis[pos] = Multiply(rand, rv);
+
+        std::string rescode = codes[DEGREE];
+        for (int l = DEGREE + 1; l < LENGTH; ++l) {
+            rescode = rescode + "|" + codes[l];
+        }
+        code = rescode;
+#if RANDOMIZE_ON_ERROR
+    } while(true);
+#else
+    } while(false);
+#endif
+
     th.join();
+
     return 0;
 }
