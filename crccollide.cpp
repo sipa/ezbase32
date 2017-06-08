@@ -497,10 +497,19 @@ static ErrCount results;
 struct ErrorLocations {
     int errors;
     int pos[ERRORS * 2];
+    uint64_t progress;
     std::mutex mutex;
 };
 
 static std::string code;
+
+static long double total_comb() {
+    long double ret = 0;
+    for (int i = 1; i <= ERRORS; ++i) {
+        ret += Combination(i, LENGTH) * powl(31, i - 1);
+    }
+    return ret;
+}
 
 bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, std::atomic<bool>& abort, ErrorLocations& err) {
     if (pos == ERRORS) {
@@ -595,7 +604,11 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                                 line += strprintf("%i ", res[posB].pos[nn]);
                                 err.pos[err.errors++] = res[posB].pos[nn];
                             }
-                            line += '\n';
+                            {
+                                std::unique_lock<std::mutex> lock2(results_mutex);
+                                results += errcount;
+                                line += strprintf(" # %Lg%% done\n", results.total / total_comb() * 100.0L);
+                            }
                             printf("%s", line.c_str());
                             return false;
                         }
@@ -628,13 +641,6 @@ void run_thread(const psol_type* partials, const basis_type* basis, int part, st
 
 using namespace std::chrono_literals;
 
-static long double total_comb() {
-    long double ret = 0;
-    for (int i = 1; i <= ERRORS; ++i) {
-        ret += Combination(i, LENGTH) * powl(31, i - 1);
-    }
-    return ret;
-}
 
 void stat_thread() {
     while (true) {
@@ -668,6 +674,10 @@ bool testalot(const psol_type* partials, const basis_type* basis, ErrorLocations
     }
     for (int part = 0; part < THREADS; ++part) {
         t[part].join();
+    }
+    {
+        std::unique_lock<std::mutex> lock(results_mutex);
+        locs->progress = results.total;
     }
     return !aborter.load();
 }
@@ -733,16 +743,18 @@ int main(int argc, char** argv) {
         Vector<DEGREE> base = x.Low<DEGREE>();
         codes[i] = namecode(base);
         basis[i] = Multiply(rand, base);
-/*        for (int j = 0; j < ERRORS; ++j) {
-            printf("% 3i  ", basis[i][j]);
-        }
-        printf("\n");*/
         x.PolyMulXMod(gen[i % NUMCODES]);
     }
 
     std::thread th(&stat_thread);
 
+    std::string best_code = code;
+    std::vector<std::string> best_codes = codes;
+    basis_type best_basis = basis;
+    uint64_t best_progress = 0;
+
     do {
+        srandom(random() * 13 + time(NULL) * 17 + getpid() * 19);
         psol_type partials;
         {
             std::array<int, ERRORS> pos;
@@ -753,6 +765,20 @@ int main(int argc, char** argv) {
         locs.errors = 0;
         testalot(&partials, &basis, &locs);
         if (locs.errors == 0) break;
+
+        if (locs.progress <= best_progress) {
+            code = best_code;
+            codes = best_codes;
+            basis = best_basis;
+        } else {
+            best_progress = locs.progress;
+            best_code = code;
+            best_codes = codes;
+            best_basis = basis;
+            std::string str = strprintf("%s: new best (%Lg%%)\n", best_code, best_progress / total_comb() * 100.0L);
+            printf("%s", str.c_str());
+        }
+
         Vector<DEGREE> rv;
         for (int j = 0; j < DEGREE; ++j) {
             rv[j] = random() & 0x1F;
@@ -762,6 +788,7 @@ int main(int argc, char** argv) {
         do {
             pos = locs.pos[random() % locs.errors];
         } while (pos < DEGREE);
+
         codes[pos] = namecode(rv);
         basis[pos] = Multiply(rand, rv);
 
@@ -770,6 +797,7 @@ int main(int argc, char** argv) {
             rescode = rescode + "|" + codes[l];
         }
         code = rescode;
+
 #if RANDOMIZE_ON_ERROR
     } while(true);
 #else
