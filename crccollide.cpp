@@ -624,7 +624,9 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         return true;
     }
     int max = allzerobefore ? 2 : 32;
-    for (fault[pos] = 0; fault[pos] < max; ++fault[pos]) {
+    int rrr = allzerobefore ? (random() & 1) : (random() & 0x1f);
+    for (int x = 0; x < max; ++x) {
+        fault[pos] = x ^ rrr;
         if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], abort, err)) {
             return false;
         }
