@@ -695,7 +695,7 @@ std::string namecode(const Vector<DEGREE>& v) {
 
 
 int main(int argc, char** argv) {
-    srandom(time(NULL));
+    srandom(time(NULL) * 7 + getpid() * 127);
     setbuf(stdout, NULL);
     Vector<POLYLEN> gen[NUMCODES];
     if (argc < 2 || strlen(argv[1]) != (POLYLEN + 1) * NUMCODES - 1) {
