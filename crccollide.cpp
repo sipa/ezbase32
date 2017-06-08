@@ -498,7 +498,6 @@ struct ErrorLocations {
     int errors;
     int pos[ERRORS * 2];
     uint64_t progress;
-    std::mutex mutex;
 };
 
 static std::string code;
@@ -593,7 +592,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         const int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
                             std::string line;
-                            std::unique_lock<std::mutex> lock(err.mutex);
+                            std::unique_lock<std::mutex> lock(results_mutex);
                             abort.store(true, std::memory_order_relaxed);
                             line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), total_err, length + 1 - res[posA].min_pos);
                             for (int nn = 0; nn < res[posA].num_err; ++nn) {
@@ -605,7 +604,6 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                                 err.pos[err.errors++] = res[posB].pos[nn];
                             }
                             {
-                                std::unique_lock<std::mutex> lock2(results_mutex);
                                 results += errcount;
                                 line += strprintf(" # %Lg%% done\n", results.total / total_comb() * 100.0L);
                             }
@@ -677,10 +675,7 @@ bool testalot(const psol_type* partials, const basis_type* basis, ErrorLocations
     for (int part = 0; part < THREADS; ++part) {
         t[part].join();
     }
-    {
-        std::unique_lock<std::mutex> lock(results_mutex);
-        locs->progress = results.total;
-    }
+    locs->progress = results.total;
     return !aborter.load();
 }
 
@@ -753,7 +748,8 @@ int main(int argc, char** argv) {
     std::string best_code = code;
     std::vector<std::string> best_codes = codes;
     basis_type best_basis = basis;
-    uint64_t best_progress = 0;
+    ErrorLocations best_locations;
+    best_locations.progress = 0;
 
     do {
         srandom(random() * 13 + time(NULL) * 17 + getpid() * 19);
@@ -768,16 +764,17 @@ int main(int argc, char** argv) {
         testalot(&partials, &basis, &locs);
         if (locs.errors == 0) break;
 
-        if (locs.progress <= best_progress) {
+        if (locs.progress <= best_locations.progress) {
             code = best_code;
             codes = best_codes;
             basis = best_basis;
+            locs = best_locations;
         } else {
-            best_progress = locs.progress;
             best_code = code;
             best_codes = codes;
             best_basis = basis;
-            std::string str = strprintf("%s: new best (%Lg%%)\n", best_code, best_progress / total_comb() * 100.0L);
+            best_locations = locs;
+            std::string str = strprintf("%s: new best (%Lg%%)\n", best_code, best_locations.progress / total_comb() * 100.0L);
             printf("%s", str.c_str());
         }
 
