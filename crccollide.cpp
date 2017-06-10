@@ -478,7 +478,7 @@ void RecursePositions(int idx, int min, std::array<int, ERRORS>& pos, psol_type&
     }
 }
 
-long double Combination(int k, int n) {
+constexpr long double Combination(int k, int n) {
     long double num = 1.0;
     long double den = 1.0;
     if (n - k < k) k = n - k;
@@ -492,6 +492,7 @@ long double Combination(int k, int n) {
 static int require_len = 0, require_err = 0;
 
 static std::mutex results_mutex;
+static long double results_progress;
 static ErrCount results;
 
 struct ErrorLocations {
@@ -502,13 +503,15 @@ struct ErrorLocations {
 
 static std::string code;
 
-static long double total_comb() {
+static constexpr long double total_comb() {
     long double ret = 0;
     for (int i = 1; i <= ERRORS; ++i) {
         ret += Combination(i, LENGTH) * powl(31, i - 1);
     }
     return ret;
 }
+
+static constexpr long double denom = 1.0L / total_comb();
 
 bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, std::atomic<bool>& abort, ErrorLocations& err) {
     if (pos == ERRORS) {
@@ -618,6 +621,12 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         {
             std::unique_lock<std::mutex> lock(results_mutex);
             results += errcount;
+            long double progress = denom * results.total;
+            if (progress > results_progress + 0.0025) {
+                std::string line = strprintf("%s: %Lg%% done\n", code.c_str(), progress * 100.0L);
+                printf("%s", line.c_str());
+                results_progress = progress;
+            }
         }
         return true;
     }
@@ -642,23 +651,17 @@ void run_thread(const psol_type* partials, const basis_type* basis, int part, st
 using namespace std::chrono_literals;
 
 
-void stat_thread() {
-    while (true) {
-        bool quit = false;
-        std::this_thread::sleep_for(60000ms);
-        std::unique_lock<std::mutex> lock(results_mutex);
-        static const long double denom = 1.0L / total_comb();
-        long double frac = results.total * denom;
-        for (int l = 1; l <= LENGTH; ++l) {
-            std::string line;
-            line += strprintf("%s % 4i", code.c_str(), l);
-            for (int e = 1; e <= ERRORS*2; ++e) {
-                line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
-            }
-            line += strprintf("  # %Lg%% done\n", frac * 100.0L);
-            printf("%s", line.c_str());
+void show_stats() {
+    std::unique_lock<std::mutex> lock(results_mutex);
+    long double frac = results.total * denom;
+    for (int l = 1; l <= LENGTH; ++l) {
+        std::string line;
+        line += strprintf("%s % 4i", code.c_str(), l);
+        for (int e = 1; e <= ERRORS*2; ++e) {
+            line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
         }
-        if (quit) return;
+        line += strprintf("  # %Lg%% done\n", frac * 100.0L);
+        printf("%s", line.c_str());
     }
 }
 
@@ -762,7 +765,10 @@ int main(int argc, char** argv) {
         ErrorLocations locs;
         locs.errors = 0;
         testalot(&partials, &basis, &locs);
-        if (locs.errors == 0) break;
+        if (locs.errors == 0) {
+            show_stats();
+            break;
+        }
 
         if (locs.progress <= best_locations.progress) {
             code = best_code;
