@@ -14,7 +14,9 @@ function rchar() {
   echo "${CHARSET:$((1+$(rnd 31))):1}"
 }
 
-for N in $(seq 1 48); do
+NUM=$(cat /proc/cpuinfo | fgrep processor | wc -l)
+
+for N in $(seq 1 $NUM); do
   while true; do
     RND="$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(rchar)"
     echo "$RND: begin at $(date)"

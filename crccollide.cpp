@@ -17,14 +17,14 @@
 
 #include "tinyformat.h"
 
-#define RANDOMIZE_ON_ERROR 1
+#define RANDOMIZE_ON_ERROR 0
 #define NUMCODES 1
 #define POLYLEN 12
 #define DEGREE 12
 #define LENGTH 65
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
-#define THREADS 8
+#define THREADS 1
 
 static inline uint64_t reduce2(uint64_t x) {
     uint64_t high = (x & 0xE0E0E0E0E0E0E0E0ULL) >> 5;
