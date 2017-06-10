@@ -434,6 +434,17 @@ typedef std::vector<Result> result_type;
 typedef std::vector<Vector<DEGREE>> basis_type;
 typedef std::vector<std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>> psol_type;
 
+bool ComparePsol(const std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>& a, const std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>& b) {
+    if (a.first == b.first) return false;
+    if (a.second.deficiency > b.second.deficiency) return true;
+    if (a.second.deficiency < b.second.deficiency) return false;
+    for (int p = ERRORS - 1; p >= 0; --p) {
+        if (a.first[p] < b.first[p]) return true;
+        if (a.first[p] > b.first[p]) return false;
+    }
+    return false;
+}
+
 struct ErrCount {
     uint64_t count[2*ERRORS+1][LENGTH + 1];
     uint64_t total;
@@ -761,6 +772,7 @@ int main(int argc, char** argv) {
             std::array<int, ERRORS> pos;
             RecursePositions(0, 0, pos, partials, basis);
         }
+        std::sort(partials.begin(), partials.end(), ComparePsol);
 
         ErrorLocations locs;
         locs.errors = 0;
