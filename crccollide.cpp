@@ -24,7 +24,7 @@
 #define LENGTH 65
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
-#define THREADS 1
+#define THREADS 8
 
 static inline uint64_t reduce2(uint64_t x) {
     uint64_t high = (x & 0xE0E0E0E0E0E0E0E0ULL) >> 5;

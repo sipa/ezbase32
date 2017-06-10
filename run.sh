@@ -19,7 +19,7 @@ NUM=$(cat /proc/cpuinfo | fgrep processor | wc -l)
 for N in $(seq 1 $NUM); do
   while true; do
     RND="$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(char)$(rchar)"
-    echo "$RND: begin at $(date)"
+    echo "$RND: begin at @$(date "+%s")"
     ./crccollide $RND 8 65
   done &
 done
