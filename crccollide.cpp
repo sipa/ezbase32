@@ -802,8 +802,5 @@ int main(int argc, char** argv) {
 #else
     } while(false);
 #endif
-
-    th.join();
-
     return 0;
 }
