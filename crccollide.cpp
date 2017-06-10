@@ -743,7 +743,7 @@ int main(int argc, char** argv) {
         x.PolyMulXMod(gen[i % NUMCODES]);
     }
 
-    std::thread th(&stat_thread);
+//    std::thread th(&stat_thread);
 
     std::string best_code = code;
     std::vector<std::string> best_codes = codes;
