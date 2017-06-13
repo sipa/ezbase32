@@ -702,6 +702,13 @@ std::string namecode(const Vector<DEGREE>& v) {
    return ret;
 }
 
+std::string namecodes(const std::vector<std::string>& codes) {
+    std::string rescode = codes[DEGREE];
+    for (int l = DEGREE + 1; l < LENGTH; ++l) {
+        rescode = rescode + "|" + codes[l];
+    }
+    return rescode;
+}
 
 int main(int argc, char** argv) {
     srandom(time(NULL) * 7 + getpid() * 127);
@@ -746,24 +753,46 @@ int main(int argc, char** argv) {
         if (rank == DEGREE) break;
     }
 
+    assert(LENGTH >= DEGREE);
+
     std::vector<std::string> codes;
     codes.resize(LENGTH);
-    code = std::string(argv[1]);
-
-    for (int i = 0; i < LENGTH; ++i) {
-        Vector<DEGREE> base = x.Low<DEGREE>();
-        codes[i] = namecode(base);
-        basis[i] = Multiply(rand, base);
-        x.PolyMulXMod(gen[i % NUMCODES]);
+    if (POLYLEN == 0) {
+        for (int i = 0; i < DEGREE; ++i) {
+            Vector<DEGREE> base;
+            base[i] = 1;
+            codes[i] = namecode(base);
+            basis[i] = Multiply(rand, base);
+        }
+        for (int i = DEGREE; i < LENGTH; ++i) {
+            Vector<DEGREE> base;
+            for (int j = 0; j < DEGREE; ++j) {
+                base[j] = random() & 0x1F;
+            }
+            codes[i] = namecode(base);
+            basis[i] = Multiply(rand, base);
+        }
+        code = namecodes(codes);
+    } else {
+        assert(POLYLEN >= DEGREE);
+        code = std::string(argv[1]);
+        for (int i = 0; i < LENGTH; ++i) {
+            Vector<DEGREE> base = x.Low<DEGREE>();
+            codes[i] = namecode(base);
+            basis[i] = Multiply(rand, base);
+            x.PolyMulXMod(gen[i % NUMCODES]);
+        }
     }
 
 //    std::thread th(&stat_thread);
 
+#if RANDOMIZE_ON_ERROR
     std::string best_code = code;
     std::vector<std::string> best_codes = codes;
     basis_type best_basis = basis;
     ErrorLocations best_locations;
     best_locations.progress = 0;
+#endif
 
     do {
         srandom(random() * 13 + time(NULL) * 17 + getpid() * 19);
@@ -782,6 +811,7 @@ int main(int argc, char** argv) {
             break;
         }
 
+#if RANDOMIZE_ON_ERROR
         if (locs.progress <= best_locations.progress) {
             code = best_code;
             codes = best_codes;
@@ -808,14 +838,8 @@ int main(int argc, char** argv) {
 
         codes[pos] = namecode(rv);
         basis[pos] = Multiply(rand, rv);
+        code = namecodes(codes);
 
-        std::string rescode = codes[DEGREE];
-        for (int l = DEGREE + 1; l < LENGTH; ++l) {
-            rescode = rescode + "|" + codes[l];
-        }
-        code = rescode;
-
-#if RANDOMIZE_ON_ERROR
     } while(true);
 #else
     } while(false);
