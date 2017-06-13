@@ -26,6 +26,14 @@
 #define MAX_DEFICIENCY 2
 #define THREADS 8
 
+static inline uint32_t rdrand() {
+    uint32_t ret;
+    unsigned char ok;
+    __asm__ volatile(".byte 0x0f, 0xc7, 0xf0; setc %1" : "=a"(ret), "=q"(ok) :: "cc");
+    assert(ok);
+    return ret;
+}
+
 static inline uint64_t reduce2(uint64_t x) {
     uint64_t high = (x & 0xE0E0E0E0E0E0E0E0ULL) >> 5;
     uint64_t low = x & 0x1F1F1F1F1F1F1F1FULL;
@@ -642,7 +650,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         return true;
     }
     int max = allzerobefore ? 2 : 32;
-    int rrr = allzerobefore ? 0 : (random() & 0x1f);
+    int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault[pos] = x ^ rrr;
         if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], abort, err)) {
@@ -711,7 +719,6 @@ std::string namecodes(const std::vector<std::string>& codes) {
 }
 
 int main(int argc, char** argv) {
-    srandom(time(NULL) * 7 + getpid() * 127);
     setbuf(stdout, NULL);
     Vector<POLYLEN> gen[NUMCODES];
     if (argc < 2 || strlen(argv[1]) != (POLYLEN + 1) * NUMCODES - 1) {
@@ -745,7 +752,7 @@ int main(int argc, char** argv) {
         Matrix<DEGREE, DEGREE> randi, res;
         for (int i = 0; i < DEGREE; ++i) {
             for (int j = 0; j < DEGREE; ++j) {
-                rand[i][j] = random() & 0x1F;
+                rand[i][j] = rdrand() & 0x1F;
             }
         }
         randi = rand;
@@ -767,7 +774,7 @@ int main(int argc, char** argv) {
         for (int i = DEGREE; i < LENGTH; ++i) {
             Vector<DEGREE> base;
             for (int j = 0; j < DEGREE; ++j) {
-                base[j] = random() & 0x1F;
+                base[j] = rdrand() & 0x1F;
             }
             codes[i] = namecode(base);
             basis[i] = Multiply(rand, base);
@@ -795,7 +802,6 @@ int main(int argc, char** argv) {
 #endif
 
     do {
-        srandom(random() * 13 + time(NULL) * 17 + getpid() * 19);
         psol_type partials;
         {
             std::array<int, ERRORS> pos;
@@ -828,12 +834,12 @@ int main(int argc, char** argv) {
 
         Vector<DEGREE> rv;
         for (int j = 0; j < DEGREE; ++j) {
-            rv[j] = random() & 0x1F;
+            rv[j] = rdrand() & 0x1F;
         }
 
         int pos;
         do {
-            pos = locs.pos[random() % locs.errors];
+            pos = locs.pos[rdrand() % locs.errors];
         } while (pos < DEGREE);
 
         codes[pos] = namecode(rv);
