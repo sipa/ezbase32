@@ -24,7 +24,7 @@
 #define LENGTH 65
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
-#define THREADS 8
+#define THREADS 1
 
 static inline uint32_t rdrand() {
     uint32_t ret;
