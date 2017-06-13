@@ -21,7 +21,7 @@
 #define NUMCODES 1
 #define POLYLEN 12
 #define DEGREE 12
-#define LENGTH 65
+#define LENGTH 64
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 1
