@@ -537,9 +537,11 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
         ErrCount errcount;
         result_type res;
+        int64_t counts[MAX_DEFICIENCY + 1] = {0};
         for (const auto& ps : psol) {
             if (abort.load(std::memory_order_relaxed)) return false;
             Vector<ERRORS> base_errors;
+            ++counts[ps.second.deficiency];
             uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
             for (uint64_t sol = 0; sol < solcount; ++sol) {
                 Vector<ERRORS> ext_errors = ExtSolution(base_errors, ps.second, sol);
@@ -625,6 +627,11 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                                 line += strprintf("%i ", res[posB].pos[nn]);
                                 err.pos[err.errors++] = res[posB].pos[nn];
                             }
+                            line += "[counts:";
+                            for (int dd = 0; dd <= MAX_DEFICIENCY; ++dd) {
+                                line += strprintf(" %i", counts[dd]);
+                            }
+                            line += "] ";
                             {
                                 results += errcount;
                                 line += strprintf(" # %Lg%% done\n", results.total / total_comb() * 100.0L);
