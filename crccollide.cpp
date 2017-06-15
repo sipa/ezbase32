@@ -17,14 +17,11 @@
 
 #include "tinyformat.h"
 
-#define RANDOMIZE_ON_ERROR 0
-#define NUMCODES 1
-#define POLYLEN 12
 #define DEGREE 12
 #define LENGTH 64
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
-#define THREADS 1
+#define THREADS 8
 
 static inline uint32_t rdrand() {
     uint32_t ret;
@@ -717,41 +714,35 @@ std::string namecode(const Vector<DEGREE>& v) {
    return ret;
 }
 
-std::string namecodes(const std::vector<std::string>& codes) {
-    std::string rescode = codes[DEGREE];
-    for (int l = DEGREE + 1; l < LENGTH; ++l) {
-        rescode = rescode + "|" + codes[l];
-    }
-    return rescode;
-}
-
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
-    Vector<POLYLEN> gen[NUMCODES];
-    if (argc < 2 || strlen(argv[1]) != (POLYLEN + 1) * NUMCODES - 1) {
-        fprintf(stderr, "Usage: %s GEN%i,...x%i\n", argv[0], POLYLEN, NUMCODES);
+    Vector<DEGREE> gen;
+    if (argc < 2 || (strlen(argv[1]) != DEGREE && strlen(argv[1]) != 0)) {
+        fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
         return 1;
     }
-    for (int c = 0; c < NUMCODES; ++c) {
-        if (c && argv[1][(POLYLEN + 1) * c - 1] != ',') {
-            fprintf(stderr, "Comma expected: '%c'\n", argv[1][(POLYLEN + 1) * c - 1]);
-            return 1;
+    if (strlen(argv[1]) == 0) {
+        for (int i = 0; i < DEGREE; ++i) {
+            gen[i] = rdrand() & 0x1f;
         }
-        for (int i = 0; i < POLYLEN; ++i) {
-            const char *ptr = strchr(charset, toupper(argv[1][(POLYLEN + 1) * c + POLYLEN - 1 - i]));
+    } else {
+        for (int i = 0; i < DEGREE; ++i) {
+            const char *ptr = strchr(charset, toupper(argv[1][DEGREE - 1 - i]));
             if (ptr == nullptr) {
-                fprintf(stderr, "Unknown character '%c'\n", argv[1][(POLYLEN + 1) * c + POLYLEN - 1 - i]);
+                fprintf(stderr, "Unknown character '%c'\n", argv[1][DEGREE - 1 - i]);
                 return 1;
             }
-            gen[c][i] = ptr - charset;
+            gen[i] = ptr - charset;
         }
     }
+    code = namecode(gen);
+
     if (argc >= 3) { require_err = strtoul(argv[2], NULL, 0); }
     if (argc >= 4) { require_len = strtoul(argv[3], NULL, 0); }
 
     basis_type basis;
     basis.resize(LENGTH);
-    Vector<POLYLEN> x;
+    Vector<DEGREE> x;
     x[0] = 1;
 
     Matrix<DEGREE, DEGREE> rand;
@@ -769,93 +760,25 @@ int main(int argc, char** argv) {
 
     assert(LENGTH >= DEGREE);
 
-    std::vector<std::string> codes;
-    codes.resize(LENGTH);
-    if (POLYLEN == 0) {
-        for (int i = 0; i < DEGREE; ++i) {
-            Vector<DEGREE> base;
-            base[i] = 1;
-            codes[i] = namecode(base);
-            basis[i] = Multiply(rand, base);
-        }
-        for (int i = DEGREE; i < LENGTH; ++i) {
-            Vector<DEGREE> base;
-            for (int j = 0; j < DEGREE; ++j) {
-                base[j] = rdrand() & 0x1F;
-            }
-            codes[i] = namecode(base);
-            basis[i] = Multiply(rand, base);
-        }
-        code = namecodes(codes);
-    } else {
-        assert(POLYLEN >= DEGREE);
-        code = std::string(argv[1]);
-        for (int i = 0; i < LENGTH; ++i) {
-            Vector<DEGREE> base = x.Low<DEGREE>();
-            codes[i] = namecode(base);
-            basis[i] = Multiply(rand, base);
-            x.PolyMulXMod(gen[i % NUMCODES]);
-        }
+    for (int i = 0; i < LENGTH; ++i) {
+        Vector<DEGREE> base = x.Low<DEGREE>();
+        basis[i] = Multiply(rand, base);
+        x.PolyMulXMod(gen);
     }
 
-//    std::thread th(&stat_thread);
+    psol_type partials;
+    {
+        std::array<int, ERRORS> pos;
+        RecursePositions(0, 0, pos, partials, basis);
+    }
+    std::sort(partials.begin(), partials.end(), ComparePsol);
 
-#if RANDOMIZE_ON_ERROR
-    std::string best_code = code;
-    std::vector<std::string> best_codes = codes;
-    basis_type best_basis = basis;
-    ErrorLocations best_locations;
-    best_locations.progress = 0;
-#endif
+    ErrorLocations locs;
+    locs.errors = 0;
+    testalot(&partials, &basis, &locs);
+    if (locs.errors == 0) {
+        show_stats();
+    }
 
-    do {
-        psol_type partials;
-        {
-            std::array<int, ERRORS> pos;
-            RecursePositions(0, 0, pos, partials, basis);
-        }
-        std::sort(partials.begin(), partials.end(), ComparePsol);
-
-        ErrorLocations locs;
-        locs.errors = 0;
-        testalot(&partials, &basis, &locs);
-        if (locs.errors == 0) {
-            show_stats();
-            break;
-        }
-
-#if RANDOMIZE_ON_ERROR
-        if (locs.progress <= best_locations.progress) {
-            code = best_code;
-            codes = best_codes;
-            basis = best_basis;
-            locs = best_locations;
-        } else {
-            best_code = code;
-            best_codes = codes;
-            best_basis = basis;
-            best_locations = locs;
-            std::string str = strprintf("%s: new best (%Lg%%)\n", best_code, best_locations.progress / total_comb() * 100.0L);
-            printf("%s", str.c_str());
-        }
-
-        Vector<DEGREE> rv;
-        for (int j = 0; j < DEGREE; ++j) {
-            rv[j] = rdrand() & 0x1F;
-        }
-
-        int pos;
-        do {
-            pos = locs.pos[rdrand() % locs.errors];
-        } while (pos < DEGREE);
-
-        codes[pos] = namecode(rv);
-        basis[pos] = Multiply(rand, rv);
-        code = namecodes(codes);
-
-    } while(true);
-#else
-    } while(false);
-#endif
     return 0;
 }
