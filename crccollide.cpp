@@ -679,10 +679,11 @@ void show_stats(const ErrCount& results) {
 bool testalot(const psol_type* partials, const basis_type* basis, ErrCount* res) {
     std::vector<std::thread> t;
     LockedErrCount ret;
-    for (int part = 0; part < THREADS; ++part) {
+    for (int part = 0; part < THREADS - 1; ++part) {
         t.emplace_back(&run_thread, partials, basis, part, &ret);
     }
-    for (int part = 0; part < THREADS; ++part) {
+    run_thread(partials, basis, THREADS - 1, &ret);
+    for (int part = 0; part < THREADS - 1; ++part) {
         t[part].join();
     }
     *res = ret;
