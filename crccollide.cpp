@@ -21,7 +21,7 @@
 #define LENGTH 64
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
-#define THREADS 8
+#define THREADS 1
 
 static inline uint32_t rdrand() {
     uint32_t ret;
@@ -452,9 +452,12 @@ bool ComparePsol(const std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS
 
 struct ErrCount {
     uint64_t count[2*ERRORS+1][LENGTH + 1];
-    uint64_t total;
+    uint64_t total = 0;
 
-    ErrCount() : total(0) {
+    int errors = 0;
+    int pos[ERRORS * 2];
+
+    ErrCount() {
         memset(count, 0, sizeof(count));
     }
 
@@ -466,13 +469,28 @@ struct ErrCount {
         }
     }
 
-    void operator+=(const ErrCount& e) {
+    uint64_t Update(const ErrCount& e) {
         for (int c = 0; c < 2*ERRORS+1; ++c) {
             for (int l = 0; l < LENGTH + 1; ++l) {
                 count[c][l] += e.count[c][l];
             }
         }
         total += e.total;
+        if (e.errors && !errors) {
+            errors = e.errors;
+            memcpy(pos, e.pos, sizeof(pos));
+        }
+        return total;
+    }
+};
+
+struct LockedErrCount : public ErrCount {
+    std::mutex lock;
+    std::atomic<bool> cleanup{false};
+
+    uint64_t Update(const ErrCount& e) {
+        std::unique_lock<std::mutex> cs(lock);
+        return ErrCount::Update(e);
     }
 };
 
@@ -507,16 +525,6 @@ constexpr long double Combination(int k, int n) {
 
 static int require_len = 0, require_err = 0;
 
-static std::mutex results_mutex;
-static long double results_progress;
-static ErrCount results;
-
-struct ErrorLocations {
-    int errors;
-    int pos[ERRORS * 2];
-    uint64_t progress;
-};
-
 static std::string code;
 
 static constexpr long double total_comb() {
@@ -529,16 +537,17 @@ static constexpr long double total_comb() {
 
 static constexpr long double denom = 1.0L / total_comb();
 
-bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, std::atomic<bool>& abort, ErrorLocations& err) {
+bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
     if (pos == ERRORS) {
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
-        ErrCount errcount;
+        ErrCount local_err;
         result_type res;
-        int64_t counts[MAX_DEFICIENCY + 1] = {0};
         for (const auto& ps : psol) {
-            if (abort.load(std::memory_order_relaxed)) return false;
+            if (err.cleanup.load(std::memory_order_relaxed)) {
+                err.Update(local_err);
+                return false;
+            }
             Vector<ERRORS> base_errors;
-            ++counts[ps.second.deficiency];
             uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
             for (uint64_t sol = 0; sol < solcount; ++sol) {
                 Vector<ERRORS> ext_errors = ExtSolution(base_errors, ps.second, sol);
@@ -587,7 +596,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                 }
 
                 if (num_error == 0) continue;
-                ++errcount.total;
+                ++local_err.total;
                 res.emplace_back(bigfault, min_pos, max_pos, num_error);
                 int nn = 0;
                 for (int i = 0; i < ERRORS; ++i) {
@@ -600,7 +609,10 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         }
         std::sort(res.begin(), res.end());
         for (size_t pos = 0; pos < res.size(); ++pos) {
-            if (abort.load(std::memory_order_relaxed)) return false;
+            if (err.cleanup.load(std::memory_order_relaxed)) {
+                err.Update(local_err);
+                return false;
+            }
             size_t pos1 = pos;
             auto &key = res[pos].fault;
             while (pos + 1 < res.size() && key == res[pos + 1].fault) {
@@ -613,51 +625,34 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         const int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
                             std::string line;
-                            std::unique_lock<std::mutex> lock(results_mutex);
-                            abort.store(true, std::memory_order_relaxed);
+                            err.cleanup.store(true, std::memory_order_relaxed);
                             line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), total_err, length + 1 - res[posA].min_pos);
                             for (int nn = 0; nn < res[posA].num_err; ++nn) {
                                 line += strprintf("%i ", res[posA].pos[nn]);
-                                err.pos[err.errors++] = res[posA].pos[nn];
+                                local_err.pos[local_err.errors++] = res[posA].pos[nn];
                             }
                             for (int nn = 0; nn < res[posB].num_err; ++nn) {
                                 line += strprintf("%i ", res[posB].pos[nn]);
-                                err.pos[err.errors++] = res[posB].pos[nn];
+                                local_err.pos[local_err.errors++] = res[posB].pos[nn];
                             }
-                            line += "[counts:";
-                            for (int dd = 0; dd <= MAX_DEFICIENCY; ++dd) {
-                                line += strprintf(" %i", counts[dd]);
-                            }
-                            line += "] ";
-                            {
-                                results += errcount;
-                                line += strprintf(" # %Lg%% done\n", results.total / total_comb() * 100.0L);
-                            }
+                            uint64_t total = err.Update(local_err);
+                            line += strprintf(" # %Lg%% done\n", total / total_comb() * 100.0L);
                             printf("%s", line.c_str());
                             return false;
                         }
-                        errcount.Inc(total_err, length + 1);
+                        local_err.Inc(total_err, length + 1);
                     }
                 }
             }
         }
-        {
-            std::unique_lock<std::mutex> lock(results_mutex);
-            results += errcount;
-            long double progress = denom * results.total;
-            if (progress > results_progress + 0.0025) {
-                std::string line = strprintf("%s: %Lg%% done\n", code.c_str(), progress * 100.0L);
-                printf("%s", line.c_str());
-                results_progress = progress;
-            }
-        }
+        err.Update(local_err);
         return true;
     }
     int max = allzerobefore ? 2 : 32;
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault[pos] = x ^ rrr;
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], abort, err)) {
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], err)) {
             return false;
         }
     }
@@ -666,16 +661,15 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-void run_thread(const psol_type* partials, const basis_type* basis, int part, std::atomic<bool>* aborter, ErrorLocations* locs) {
+void run_thread(const psol_type* partials, const basis_type* basis, int part, LockedErrCount* locs) {
     Vector<ERRORS> faults;
-    (void)RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, *aborter, *locs);
+    (void)RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, *locs);
 }
 
 using namespace std::chrono_literals;
 
 
-void show_stats() {
-    std::unique_lock<std::mutex> lock(results_mutex);
+void show_stats(const ErrCount& results) {
     long double frac = results.total * denom;
     for (int l = 1; l <= LENGTH; ++l) {
         std::string line;
@@ -688,28 +682,24 @@ void show_stats() {
     }
 }
 
-bool testalot(const psol_type* partials, const basis_type* basis, ErrorLocations* locs) {
-    {
-        std::unique_lock<std::mutex> lock(results_mutex);
-        results = ErrCount();
-    }
-    std::atomic<bool> aborter{false};
+bool testalot(const psol_type* partials, const basis_type* basis, ErrCount* res) {
     std::vector<std::thread> t;
+    LockedErrCount ret;
     for (int part = 0; part < THREADS; ++part) {
-        t.emplace_back(&run_thread, partials, basis, part, &aborter, locs);
+        t.emplace_back(&run_thread, partials, basis, part, &ret);
     }
     for (int part = 0; part < THREADS; ++part) {
         t[part].join();
     }
-    locs->progress = results.total;
-    return !aborter.load();
+    *res = ret;
+    return !ret.cleanup.load();
 }
 
 std::string namecode(const Vector<DEGREE>& v) {
    std::string ret;
    ret.resize(DEGREE);
    for (int d = 0; d < DEGREE; ++d) {
-       ret[d] = charset[v[d]];
+       ret[d] = charset[v[DEGREE - 1 - d]];
    }
    return ret;
 }
@@ -773,11 +763,11 @@ int main(int argc, char** argv) {
     }
     std::sort(partials.begin(), partials.end(), ComparePsol);
 
-    ErrorLocations locs;
+    ErrCount locs;
     locs.errors = 0;
     testalot(&partials, &basis, &locs);
     if (locs.errors == 0) {
-        show_stats();
+        show_stats(locs);
     }
 
     return 0;
