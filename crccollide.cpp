@@ -624,20 +624,14 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
                         int total_err = res[posA].num_err + res[posB].num_err;
                         const int length = res[posB].max_pos;
                         if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
-                            std::string line;
                             err.cleanup.store(true, std::memory_order_relaxed);
-                            line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), total_err, length + 1 - res[posA].min_pos);
                             for (int nn = 0; nn < res[posA].num_err; ++nn) {
-                                line += strprintf("%i ", res[posA].pos[nn]);
                                 local_err.pos[local_err.errors++] = res[posA].pos[nn];
                             }
                             for (int nn = 0; nn < res[posB].num_err; ++nn) {
-                                line += strprintf("%i ", res[posB].pos[nn]);
                                 local_err.pos[local_err.errors++] = res[posB].pos[nn];
                             }
-                            uint64_t total = err.Update(local_err);
-                            line += strprintf(" # %Lg%% done\n", total / total_comb() * 100.0L);
-                            printf("%s", line.c_str());
+                            err.Update(local_err);
                             return false;
                         }
                         local_err.Inc(total_err, length + 1);
@@ -692,7 +686,17 @@ bool testalot(const psol_type* partials, const basis_type* basis, ErrCount* res)
         t[part].join();
     }
     *res = ret;
-    return !ret.cleanup.load();
+    if (res->errors) {
+        std::string line;
+        line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), res->errors, res->pos[res->errors - 1] + 1 - res->pos[0]);
+        for (int e = 0; e < res->errors; ++e) {
+            line += strprintf("%i ", res->pos[e]);
+        }
+        line += strprintf(" # %Lg%% done\n", res->total / total_comb() * 100.0L);
+        printf("%s", line.c_str());
+        return false;
+    }
+    return true;
 }
 
 std::string namecode(const Vector<DEGREE>& v) {
