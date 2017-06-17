@@ -498,8 +498,8 @@ struct LockedErrCount : public ErrCount {
     }
 };
 
-void RecursePositions(int idx, int min, std::array<int, ERRORS>& pos, psol_type& psol, const basis_type& basis) {
-    if (idx == ERRORS) {
+void RecursePositions(int idx, int errors, int min, int max, std::array<int, ERRORS>& pos, psol_type& psol, const basis_type& basis) {
+    if (idx == errors) {
         Matrix<ERRORS,ERRORS> rr;
         for (int i = 0; i < ERRORS; ++i) {
             rr[i] = basis[pos[i]].Low<ERRORS>();
@@ -511,8 +511,8 @@ void RecursePositions(int idx, int min, std::array<int, ERRORS>& pos, psol_type&
         }*/
         return;
     }
-    for (pos[idx] = min; pos[idx] < LENGTH; ++pos[idx]) {
-        RecursePositions(idx + 1, pos[idx] + 1, pos, psol, basis);
+    for (pos[idx] = min; pos[idx] < max; ++pos[idx]) {
+        RecursePositions(idx + 1, errors, pos[idx] + 1, max, pos, psol, basis);
     }
 }
 
@@ -650,7 +650,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault[pos] = x ^ rrr;
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837601ULL + fault[pos], err)) {
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
             return false;
         }
     }
@@ -683,7 +683,7 @@ void show_stats(const ErrCount& results) {
 bool testalot(const basis_type* basis, ErrCount* res) {
     psol_type partials;
     std::array<int, ERRORS> pos;
-    RecursePositions(0, 0, pos, partials, *basis);
+    RecursePositions(0, ERRORS, 0, LENGTH, pos, partials, *basis);
 
     LockedErrCount ret;
 #if THREADS > 1
