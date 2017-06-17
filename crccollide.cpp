@@ -485,11 +485,15 @@ struct ErrCount {
 };
 
 struct LockedErrCount : public ErrCount {
+#if THREADS > 1
     std::mutex lock;
+#endif
     std::atomic<bool> cleanup{false};
 
     uint64_t Update(const ErrCount& e) {
+#if THREADS > 1
         std::unique_lock<std::mutex> cs(lock);
+#endif
         return ErrCount::Update(e);
     }
 };
@@ -676,16 +680,26 @@ void show_stats(const ErrCount& results) {
     }
 }
 
-bool testalot(const psol_type* partials, const basis_type* basis, ErrCount* res) {
-    std::vector<std::thread> t;
-    LockedErrCount ret;
-    for (int part = 0; part < THREADS - 1; ++part) {
-        t.emplace_back(&run_thread, partials, basis, part, &ret);
+bool testalot(const basis_type* basis, ErrCount* res) {
+    psol_type partials;
+    {
+        std::array<int, ERRORS> pos;
+        RecursePositions(0, 0, pos, partials, *basis);
     }
-    run_thread(partials, basis, THREADS - 1, &ret);
+
+    LockedErrCount ret;
+#if THREADS > 1
+    std::vector<std::thread> t;
+    for (int part = 0; part < THREADS - 1; ++part) {
+        t.emplace_back(&run_thread, &partials, basis, part, &ret);
+    }
+#endif
+    run_thread(&partials, basis, THREADS - 1, &ret);
+#if THREADS > 1
     for (int part = 0; part < THREADS - 1; ++part) {
         t[part].join();
     }
+#endif
     *res = ret;
     if (res->errors) {
         std::string line;
@@ -761,16 +775,9 @@ int main(int argc, char** argv) {
         x.PolyMulXMod(gen);
     }
 
-    psol_type partials;
-    {
-        std::array<int, ERRORS> pos;
-        RecursePositions(0, 0, pos, partials, basis);
-    }
-    std::sort(partials.begin(), partials.end(), ComparePsol);
-
     ErrCount locs;
     locs.errors = 0;
-    testalot(&partials, &basis, &locs);
+    testalot(&basis, &locs);
     if (locs.errors == 0) {
         show_stats(locs);
     }
