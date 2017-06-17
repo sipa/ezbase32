@@ -541,82 +541,82 @@ static constexpr long double total_comb() {
 
 static constexpr long double denom = 1.0L / total_comb();
 
-bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
-    if (pos == ERRORS) {
-        if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
-        ErrCount local_err;
-        result_type res;
-        for (const auto& ps : psol) {
-            if (err.cleanup.load(std::memory_order_relaxed)) {
-                err.Update(local_err);
-                return false;
-            }
-            Vector<ERRORS> base_errors;
-            uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
-            for (uint64_t sol = 0; sol < solcount; ++sol) {
-                Vector<ERRORS> ext_errors = ExtSolution(base_errors, ps.second, sol);
+static void ExpandSolutions(result_type& res, const basis_type& basis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore) {
+    for (const auto& ps : psol) {
+        Vector<ERRORS> base_errors;
+        uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
+        for (uint64_t sol = 0; sol < solcount; ++sol) {
+            Vector<ERRORS> ext_errors = ExtSolution(base_errors, ps.second, sol);
 
-                /* Filter out duplicates for fewer errors than max */
-                bool consec = true;
-                bool ok = true;
-                for (int i = 0; i < ERRORS; ++i) {
-                    consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : 0));
-                    if (ext_errors[i] == 0 && !consec) {
-                        ok = false;
+            /* Filter out duplicates for fewer errors than max */
+            bool consec = true;
+            bool ok = true;
+            for (int i = 0; i < ERRORS; ++i) {
+                consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : 0));
+                if (ext_errors[i] == 0 && !consec) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) continue;
+
+            // Compute the full fault and verify it
+            Vector<DEGREE> bigfault;
+            for (int i = 0; i < ERRORS; ++i) {
+                bigfault.SubMul(basis[ps.first[i]], ext_errors[i]);
+            }
+            for (int i = 0; i < ERRORS; ++i) {
+                assert(bigfault[i] == fault[i]);
+            }
+
+            if (allzerobefore) {
+                for (int i = ERRORS; i < DEGREE; ++i) {
+                    if (bigfault[i] != 0) {
+                        ok = (bigfault[i] == 1);
                         break;
                     }
                 }
                 if (!ok) continue;
+            }
 
-
-                // Compute the full fault and verify it
-                Vector<DEGREE> bigfault;
-                for (int i = 0; i < ERRORS; ++i) {
-                    bigfault.SubMul(basis[ps.first[i]], ext_errors[i]);
+            int num_error = 0;
+            int min_pos = LENGTH;
+            int max_pos = 0;
+            for (int i = 0; i < ERRORS; ++i) {
+                if (ext_errors[i]) {
+                    ++num_error;
+                    min_pos = std::min(min_pos, ps.first[i]);
+                    max_pos = std::max(max_pos, ps.first[i]);
                 }
-                for (int i = 0; i < ERRORS; ++i) {
-                    assert(bigfault[i] == fault[i]);
-                }
+            }
 
-                if (allzerobefore) {
-                    for (int i = ERRORS; i < DEGREE; ++i) {
-                        if (bigfault[i] != 0) {
-                            ok = (bigfault[i] == 1);
-                            break;
-                        }
-                    }
-                    if (!ok) continue;
-                }
-
-                int num_error = 0;
-                int min_pos = LENGTH;
-                int max_pos = 0;
-                for (int i = 0; i < ERRORS; ++i) {
-                    if (ext_errors[i]) {
-                        ++num_error;
-                        min_pos = std::min(min_pos, ps.first[i]);
-                        max_pos = std::max(max_pos, ps.first[i]);
-                    }
-                }
-
-                if (num_error == 0) continue;
-                ++local_err.total;
-                res.emplace_back(bigfault, min_pos, max_pos, num_error);
-                int nn = 0;
-                for (int i = 0; i < ERRORS; ++i) {
-                    if (ext_errors[i]) {
-                        res.back().pos[nn] = ps.first[i];
-                        ++nn;
-                    }
+            if (num_error == 0) continue;
+            res.emplace_back(bigfault, min_pos, max_pos, num_error);
+            int nn = 0;
+            for (int i = 0; i < ERRORS; ++i) {
+                if (ext_errors[i]) {
+                    res.back().pos[nn] = ps.first[i];
+                    ++nn;
                 }
             }
         }
-        std::sort(res.begin(), res.end());
+    }
+    std::sort(res.begin(), res.end());
+}
+
+bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
+    if (pos == ERRORS) {
+        if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
+        if (err.cleanup.load(std::memory_order_relaxed)) {
+            return false;
+        }
+
+        ErrCount local_err;
+        result_type res;
+        ExpandSolutions(res, basis, psol, fault, allzerobefore);
+        local_err.total = res.size();
+
         for (size_t pos = 0; pos < res.size(); ++pos) {
-            if (err.cleanup.load(std::memory_order_relaxed)) {
-                err.Update(local_err);
-                return false;
-            }
             size_t pos1 = pos;
             auto &key = res[pos].fault;
             while (pos + 1 < res.size() && key == res[pos + 1].fault) {
@@ -682,10 +682,8 @@ void show_stats(const ErrCount& results) {
 
 bool testalot(const basis_type* basis, ErrCount* res) {
     psol_type partials;
-    {
-        std::array<int, ERRORS> pos;
-        RecursePositions(0, 0, pos, partials, *basis);
-    }
+    std::array<int, ERRORS> pos;
+    RecursePositions(0, 0, pos, partials, *basis);
 
     LockedErrCount ret;
 #if THREADS > 1
