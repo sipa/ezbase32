@@ -465,7 +465,7 @@ struct ErrCount {
         assert(length < LENGTH + 1);
         assert(errors < 2*ERRORS+1);
         for (int len = length; len < LENGTH + 1; ++len) {
-            ++count[errors][len];
+            count[errors][len] += len - length + 1;
         }
     }
 
@@ -541,7 +541,7 @@ static constexpr long double total_comb() {
 
 static constexpr long double denom = 1.0L / total_comb();
 
-static void ExpandSolutions(result_type& res, const basis_type& basis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore) {
+static void ExpandSolutions(result_type& res, const basis_type& basis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore, int min) {
     for (const auto& ps : psol) {
         Vector<ERRORS> base_errors;
         uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
@@ -552,7 +552,7 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             bool consec = true;
             bool ok = true;
             for (int i = 0; i < ERRORS; ++i) {
-                consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : 0));
+                consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : min));
                 if (ext_errors[i] == 0 && !consec) {
                     ok = false;
                     break;
@@ -604,36 +604,51 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
     std::sort(res.begin(), res.end());
 }
 
-bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
+bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol_low, const psol_type& psol_high, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err, int len) {
     if (pos == ERRORS) {
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
         if (err.cleanup.load(std::memory_order_relaxed)) {
             return false;
         }
 
-        ErrCount local_err;
-        result_type res;
-        ExpandSolutions(res, basis, psol, fault, allzerobefore);
-        local_err.total = res.size();
+        result_type res_low, res_high;
+        ExpandSolutions(res_low, basis, psol_low, fault, allzerobefore, 0);
+        ExpandSolutions(res_high, basis, psol_high, fault, allzerobefore, 1);
 
-        for (size_t pos = 0; pos < res.size(); ++pos) {
-            size_t pos1 = pos;
-            auto &key = res[pos].fault;
-            while (pos + 1 < res.size() && key == res[pos + 1].fault) {
-                ++pos;
+        ErrCount local_err;
+        local_err.total = res_high.size();
+
+        auto it_low = res_low.begin(), it_high = res_high.begin();
+        while (it_low != res_low.end() && it_high != res_high.end()) {
+            if (it_low->fault < it_high->fault) {
+                ++it_low;
+                continue;
             }
-            for (size_t posA = pos1; posA + 1 <= pos; ++posA) {
-                for (size_t posB = posA + 1; posB <= pos; ++posB) {
-                    if (res[posA].num_err <= res[posB].num_err && res[posA].num_err + 1 >= res[posB].num_err && res[posA].max_pos < res[posB].min_pos) {
-                        int total_err = res[posA].num_err + res[posB].num_err;
-                        const int length = res[posB].max_pos;
-                        if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
+            if (it_high->fault < it_low->fault) {
+                ++it_high;
+                continue;
+            }
+            auto it_low_inner = it_low++;
+            auto it_high_saved = it_high++;
+            while (it_low != res_low.end() && it_low->fault == it_low_inner->fault) ++it_low;
+            while (it_high != res_high.end() && it_high->fault == it_high_saved->fault) ++it_high;
+            for (; it_low_inner != it_low; ++it_low_inner) {
+                assert(it_low_inner->max_pos < len);
+                if (it_low_inner->min_pos != 0) continue;
+                auto it_high_inner = it_high_saved;
+                for (; it_high_inner != it_high; ++it_high_inner) {
+                    assert(it_high_inner->max_pos < len);
+                    if (it_high_inner->max_pos != len - 1) continue;
+                    if (it_low_inner->num_err <= it_high_inner->num_err && it_low_inner->num_err + 1 >= it_high_inner->num_err && it_low_inner->max_pos < it_high_inner->min_pos) {
+                        int total_err = it_low_inner->num_err + it_high_inner->num_err;
+                        const int length = it_high_inner->max_pos;
+                        if (length + 1 <= require_len && total_err <= require_err) {
                             err.cleanup.store(true, std::memory_order_relaxed);
-                            for (int nn = 0; nn < res[posA].num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = res[posA].pos[nn];
+                            for (int nn = 0; nn < it_low_inner->num_err; ++nn) {
+                                local_err.pos[local_err.errors++] = it_low_inner->pos[nn];
                             }
-                            for (int nn = 0; nn < res[posB].num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = res[posB].pos[nn];
+                            for (int nn = 0; nn < it_high_inner->num_err; ++nn) {
+                                local_err.pos[local_err.errors++] = it_high_inner->pos[nn];
                             }
                             err.Update(local_err);
                             return false;
@@ -650,7 +665,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault[pos] = x ^ rrr;
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol_low, psol_high, basis, part, hash * 9672876866715837617ULL + fault[pos], err, len)) {
             return false;
         }
     }
@@ -659,9 +674,9 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-void run_thread(const psol_type* partials, const basis_type* basis, int part, LockedErrCount* locs) {
+void run_thread(const psol_type* partials_low, const psol_type* partials_high, const basis_type* basis, int part, LockedErrCount* locs, int len) {
     Vector<ERRORS> faults;
-    (void)RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, *locs);
+    (void)RecurseShortFaults(0, true, faults, *partials_low, *partials_high, *basis, part, 0, *locs, len);
 }
 
 using namespace std::chrono_literals;
@@ -673,39 +688,41 @@ void show_stats(const ErrCount& results) {
         std::string line;
         line += strprintf("%s % 4i", code.c_str(), l);
         for (int e = 1; e <= ERRORS*2; ++e) {
-            line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
+            line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) /** frac*/ * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
         }
         line += strprintf("  # %Lg%% done\n", frac * 100.0L);
         printf("%s", line.c_str());
     }
 }
 
-bool testalot(const basis_type* basis, ErrCount* res) {
-    psol_type partials;
-    std::array<int, ERRORS> pos;
-    RecursePositions(0, ERRORS, 0, LENGTH, pos, partials, *basis);
+bool testalot(const basis_type* basis, LockedErrCount* ret, int len) {
+    psol_type partials_low, partials_high;
 
-    LockedErrCount ret;
+    std::array<int, ERRORS> pos;
+    pos[0] = 0;
+    RecursePositions(1, ERRORS, 1, len - 1, pos, partials_low, *basis);
+    pos[ERRORS - 1] = len - 1;
+    RecursePositions(0, ERRORS - 1, 1, len - 1, pos, partials_high, *basis);
+
 #if THREADS > 1
     std::vector<std::thread> t;
     for (int part = 0; part < THREADS - 1; ++part) {
-        t.emplace_back(&run_thread, &partials, basis, part, &ret);
+        t.emplace_back(&run_thread, &partials_low, &partials_high, basis, part, ret, len);
     }
 #endif
-    run_thread(&partials, basis, THREADS - 1, &ret);
+    run_thread(&partials_low, &partials_high, basis, THREADS - 1, ret, len);
 #if THREADS > 1
     for (int part = 0; part < THREADS - 1; ++part) {
         t[part].join();
     }
 #endif
-    *res = ret;
-    if (res->errors) {
+    if (ret->errors) {
         std::string line;
-        line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), res->errors, res->pos[res->errors - 1] + 1 - res->pos[0]);
-        for (int e = 0; e < res->errors; ++e) {
-            line += strprintf("%i ", res->pos[e]);
+        line += strprintf("%s: %i errors in a window of size %i: ", code.c_str(), ret->errors, ret->pos[ret->errors - 1] + 1 - ret->pos[0]);
+        for (int e = 0; e < ret->errors; ++e) {
+            line += strprintf("%i ", ret->pos[e]);
         }
-        line += strprintf(" # %Lg%% done\n", res->total / total_comb() * 100.0L);
+        line += strprintf(" # %Lg%% done\n", ret->total / total_comb() * 100.0L);
         printf("%s", line.c_str());
         return false;
     }
@@ -773,9 +790,13 @@ int main(int argc, char** argv) {
         x.PolyMulXMod(gen);
     }
 
-    ErrCount locs;
+    LockedErrCount locs;
     locs.errors = 0;
-    testalot(&basis, &locs);
+    for (int len = LENGTH; len >= ERRORS * 2; --len) {
+        if (!testalot(&basis, &locs, len)) {
+            return false;
+        }
+    }
     if (locs.errors == 0) {
         show_stats(locs);
     }
