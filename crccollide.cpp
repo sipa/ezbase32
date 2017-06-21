@@ -620,36 +620,39 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         ExpandSolutions(res, basis, psol, fault, allzerobefore);
         local_err.total = res.size();
 
-        std::vector<const Result*> sres;
-        sres.resize(res.size());
-        for (size_t i = 0; i < res.size(); ++i) {
-            sres[i] = &res[i];
+        std::vector<const Result*> sres[1024];
+        for (int s = 0; s < 1024; ++s) {
+            sres[s].reserve(res.size() / 300);
         }
-        std::sort(sres.begin(), sres.end(), CompareResultPointer);
-
-        for (size_t pos = 0; pos < sres.size(); ++pos) {
-            size_t pos1 = pos;
-            auto &key = sres[pos]->fault;
-            while (pos + 1 < sres.size() && key == sres[pos + 1]->fault) {
-                ++pos;
-            }
-            for (size_t posA = pos1; posA + 1 <= pos; ++posA) {
-                for (size_t posB = posA + 1; posB <= pos; ++posB) {
-                    if (sres[posA]->num_err <= sres[posB]->num_err && sres[posA]->num_err + 1 >= sres[posB]->num_err && sres[posA]->max_pos < sres[posB]->min_pos) {
-                        int total_err = sres[posA]->num_err + sres[posB]->num_err;
-                        const int length = sres[posB]->max_pos;
-                        if (length + 1 - sres[posA]->min_pos <= require_len && total_err <= require_err) {
-                            err.cleanup.store(true, std::memory_order_relaxed);
-                            for (int nn = 0; nn < sres[posA]->num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = sres[posA]->pos[nn];
+        for (size_t i = 0; i < res.size(); ++i) {
+            sres[res[i].fault[DEGREE - 1] + 32 * res[i].fault[DEGREE - 2]].push_back(&res[i]);
+        }
+        for (int s = 0; s < 1024; ++s) {
+            std::sort(sres[s].begin(), sres[s].end(), CompareResultPointer);
+            for (size_t pos = 0; pos < sres[s].size(); ++pos) {
+                size_t pos1 = pos;
+                auto &key = sres[s][pos]->fault;
+                while (pos + 1 < sres[s].size() && key == sres[s][pos + 1]->fault) {
+                    ++pos;
+                }
+                for (size_t posA = pos1; posA + 1 <= pos; ++posA) {
+                    for (size_t posB = posA + 1; posB <= pos; ++posB) {
+                        if (sres[s][posA]->num_err <= sres[s][posB]->num_err && sres[s][posA]->num_err + 1 >= sres[s][posB]->num_err && sres[s][posA]->max_pos < sres[s][posB]->min_pos) {
+                            int total_err = sres[s][posA]->num_err + sres[s][posB]->num_err;
+                            const int length = sres[s][posB]->max_pos;
+                            if (length + 1 - sres[s][posA]->min_pos <= require_len && total_err <= require_err) {
+                                err.cleanup.store(true, std::memory_order_relaxed);
+                                for (int nn = 0; nn < sres[s][posA]->num_err; ++nn) {
+                                    local_err.pos[local_err.errors++] = sres[s][posA]->pos[nn];
+                                }
+                                for (int nn = 0; nn < sres[s][posB]->num_err; ++nn) {
+                                    local_err.pos[local_err.errors++] = sres[s][posB]->pos[nn];
+                                }
+                                err.Update(local_err);
+                                return false;
                             }
-                            for (int nn = 0; nn < sres[posB]->num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = sres[posB]->pos[nn];
-                            }
-                            err.Update(local_err);
-                            return false;
+                            local_err.Inc(total_err, length + 1);
                         }
-                        local_err.Inc(total_err, length + 1);
                     }
                 }
             }
