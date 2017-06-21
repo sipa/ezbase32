@@ -542,6 +542,7 @@ static constexpr long double total_comb() {
 static constexpr long double denom = 1.0L / total_comb();
 
 static void ExpandSolutions(result_type& res, const basis_type& basis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore) {
+    res.reserve(psol.size() * 2);
     for (const auto& ps : psol) {
         Vector<ERRORS> base_errors;
         uint64_t solcount = BaseSolution(base_errors, ps.second, fault);
@@ -601,7 +602,10 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             }
         }
     }
-    std::sort(res.begin(), res.end());
+}
+
+static bool CompareResultPointer(const Result* a, const Result* b) {
+    return (*a) < (*b);
 }
 
 bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
@@ -616,24 +620,31 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         ExpandSolutions(res, basis, psol, fault, allzerobefore);
         local_err.total = res.size();
 
-        for (size_t pos = 0; pos < res.size(); ++pos) {
+        std::vector<const Result*> sres;
+        sres.resize(res.size());
+        for (size_t i = 0; i < res.size(); ++i) {
+            sres[i] = &res[i];
+        }
+        std::sort(sres.begin(), sres.end(), CompareResultPointer);
+
+        for (size_t pos = 0; pos < sres.size(); ++pos) {
             size_t pos1 = pos;
-            auto &key = res[pos].fault;
-            while (pos + 1 < res.size() && key == res[pos + 1].fault) {
+            auto &key = sres[pos]->fault;
+            while (pos + 1 < sres.size() && key == sres[pos + 1]->fault) {
                 ++pos;
             }
             for (size_t posA = pos1; posA + 1 <= pos; ++posA) {
                 for (size_t posB = posA + 1; posB <= pos; ++posB) {
-                    if (res[posA].num_err <= res[posB].num_err && res[posA].num_err + 1 >= res[posB].num_err && res[posA].max_pos < res[posB].min_pos) {
-                        int total_err = res[posA].num_err + res[posB].num_err;
-                        const int length = res[posB].max_pos;
-                        if (length + 1 - res[posA].min_pos <= require_len && total_err <= require_err) {
+                    if (sres[posA]->num_err <= sres[posB]->num_err && sres[posA]->num_err + 1 >= sres[posB]->num_err && sres[posA]->max_pos < sres[posB]->min_pos) {
+                        int total_err = sres[posA]->num_err + sres[posB]->num_err;
+                        const int length = sres[posB]->max_pos;
+                        if (length + 1 - sres[posA]->min_pos <= require_len && total_err <= require_err) {
                             err.cleanup.store(true, std::memory_order_relaxed);
-                            for (int nn = 0; nn < res[posA].num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = res[posA].pos[nn];
+                            for (int nn = 0; nn < sres[posA]->num_err; ++nn) {
+                                local_err.pos[local_err.errors++] = sres[posA]->pos[nn];
                             }
-                            for (int nn = 0; nn < res[posB].num_err; ++nn) {
-                                local_err.pos[local_err.errors++] = res[posB].pos[nn];
+                            for (int nn = 0; nn < sres[posB]->num_err; ++nn) {
+                                local_err.pos[local_err.errors++] = sres[posB]->pos[nn];
                             }
                             err.Update(local_err);
                             return false;
