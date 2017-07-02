@@ -23,6 +23,8 @@
 #define MAX_DEFICIENCY 2
 #define THREADS 1
 
+#define MIN_FACTOR_DEGREE 2
+
 static inline uint32_t rdrand() {
     uint32_t ret;
     unsigned char ok;
@@ -203,6 +205,17 @@ public:
         memcpy(&ret[0], d + N - A, A);
     }
 };
+
+template<int A, int B>
+uint8_t Divides(const Vector<A>& a, const Vector<B>& b) {
+    Vector<A> m;
+    m[0] = 1;
+    for (int d = B - 1; d >= 0; --d) {
+        m.PolyMulXMod(a);
+        m[0] ^= b[d];
+    }
+    return m.IsZero();
+}
 
 template<int A>
 uint8_t Multiply(const Vector<A>& a, const Vector<A>& b) {
@@ -743,9 +756,47 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (strlen(argv[1]) == 0) {
-        for (int i = 0; i < DEGREE; ++i) {
-            gen[i] = rdrand() & 0x1f;
-        }
+        do {
+            for (int i = 0; i < DEGREE; ++i) {
+                gen[i] = rdrand() & 0x1f;
+            }
+            bool bad = false;
+#if MIN_FACTOR_DEGREE > 0
+            if (gen[0] == 0) bad = true;
+            if (bad) continue;
+#endif
+            // Test for degree 1 factors.
+#if MIN_FACTOR_DEGREE > 1
+            {
+                Vector<1> div;
+                for (int x = 0; x <= 31; ++x) {
+                    div[0] = x;
+                    if (Divides(div, gen)) {
+                        bad = true;
+                        break;
+                    }
+                }
+            }
+            if (bad) continue;
+#endif
+            // Test for degree 2 factors.
+#if MIN_FACTOR_DEGREE > 2
+            {
+                Vector<2> div;
+                for (int x = 0; x <= 31; ++x) {
+                for (int y = 0; y <= 31; ++y) {
+                    div[0] = x;
+                    div[1] = y;
+                    if (Divides(div, gen)) {
+                        bad = true;
+                        break;
+                    }
+                }}
+            }
+            if (bad) continue;
+#endif
+            break;
+        } while(true);
     } else {
         for (int i = 0; i < DEGREE; ++i) {
             const char *ptr = strchr(charset, toupper(argv[1][DEGREE - 1 - i]));
