@@ -23,7 +23,7 @@
 #define MAX_DEFICIENCY 2
 #define THREADS 1
 
-#define MIN_FACTOR_DEGREE 2
+#define MIN_FACTOR_DEGREE 6
 
 static inline uint32_t rdrand() {
     uint32_t ret;
@@ -215,6 +215,24 @@ uint8_t Divides(const Vector<A>& a, const Vector<B>& b) {
         m[0] ^= b[d];
     }
     return m.IsZero();
+}
+
+template<int A, int B>
+bool AnyFactor_(int pos, Vector<A>& a, const Vector<B>& b) {
+    if (pos == A) {
+        return Divides(a, b);
+    }
+    for (int i = 0; i < 32; ++i) {
+        a[pos] = i;
+        if (AnyFactor_(pos + 1, a, b)) return true;
+    }
+    return false;
+}
+
+template<int A, int B>
+bool AnyFactor(const Vector<B>& b) {
+    Vector<A> a;
+    return AnyFactor_(0, a, b);
 }
 
 template<int A>
@@ -760,40 +778,25 @@ int main(int argc, char** argv) {
             for (int i = 0; i < DEGREE; ++i) {
                 gen[i] = rdrand() & 0x1f;
             }
-            bool bad = false;
-#if MIN_FACTOR_DEGREE > 0
-            if (gen[0] == 0) bad = true;
-            if (bad) continue;
-#endif
-            // Test for degree 1 factors.
+            code = namecode(gen);
 #if MIN_FACTOR_DEGREE > 1
-            {
-                Vector<1> div;
-                for (int x = 0; x <= 31; ++x) {
-                    div[0] = x;
-                    if (Divides(div, gen)) {
-                        bad = true;
-                        break;
-                    }
-                }
-            }
-            if (bad) continue;
+            if (gen[0] == 0) { printf("%s: divisible by x\n", code.c_str()); continue; }
+            if (AnyFactor<1, DEGREE>(gen)) { printf("%s: degree 1 factor\n", code.c_str()); continue; }
 #endif
-            // Test for degree 2 factors.
 #if MIN_FACTOR_DEGREE > 2
-            {
-                Vector<2> div;
-                for (int x = 0; x <= 31; ++x) {
-                for (int y = 0; y <= 31; ++y) {
-                    div[0] = x;
-                    div[1] = y;
-                    if (Divides(div, gen)) {
-                        bad = true;
-                        break;
-                    }
-                }}
-            }
-            if (bad) continue;
+            if (AnyFactor<2, DEGREE>(gen)) { printf("%s: degree 2 factor\n", code.c_str()); continue; }
+#endif
+#if MIN_FACTOR_DEGREE > 3
+            if (AnyFactor<3, DEGREE>(gen)) { printf("%s: degree 3 factor\n", code.c_str()); continue; }
+#endif
+#if MIN_FACTOR_DEGREE > 4
+            if (AnyFactor<4, DEGREE>(gen)) { printf("%s: degree 4 factor\n", code.c_str()); continue; }
+#endif
+#if MIN_FACTOR_DEGREE > 5
+            if (AnyFactor<5, DEGREE>(gen)) { printf("%s: degree 5 factor\n", code.c_str()); continue; }
+#endif
+#if MIN_FACTOR_DEGREE > 6
+            if (AnyFactor<6, DEGREE>(gen)) { printf("%s: degree 6 factor\n", code.c_str()); continue; }
 #endif
             break;
         } while(true);
@@ -808,6 +811,7 @@ int main(int argc, char** argv) {
         }
     }
     code = namecode(gen);
+    printf("%s: starting\n", code.c_str());
 
     if (argc >= 3) { require_err = strtoul(argv[2], NULL, 0); }
     if (argc >= 4) { require_len = strtoul(argv[3], NULL, 0); }
