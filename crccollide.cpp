@@ -23,7 +23,7 @@
 #define MAX_DEFICIENCY 2
 #define THREADS 1
 
-#define MIN_FACTOR_DEGREE 6
+#define MIN_FACTOR_DEGREE 2
 
 static inline uint32_t rdrand() {
     uint32_t ret;
