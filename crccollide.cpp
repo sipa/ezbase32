@@ -23,7 +23,7 @@
 #define MAX_DEFICIENCY 2
 #define THREADS 1
 
-#define MIN_FACTOR_DEGREE 2
+#define MIN_FACTOR_DEGREE 1
 
 static inline uint32_t rdrand() {
     uint32_t ret;
@@ -779,8 +779,8 @@ int main(int argc, char** argv) {
                 gen[i] = rdrand() & 0x1f;
             }
             code = namecode(gen);
-#if MIN_FACTOR_DEGREE > 1
             if (gen[0] == 0) { printf("%s: divisible by x\n", code.c_str()); continue; }
+#if MIN_FACTOR_DEGREE > 1
             if (AnyFactor<1, DEGREE>(gen)) { printf("%s: degree 1 factor\n", code.c_str()); continue; }
 #endif
 #if MIN_FACTOR_DEGREE > 2
