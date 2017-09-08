@@ -252,7 +252,7 @@ if True:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,4,3,1)
+      attempt(Q,M,N,5,6,1)
 else:
     for (E,L) in [(2,1023),(2,341),(2,93),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
         for (DIST,DEG) in [(7,12),(6,12),(5,6),(4,6)]:
