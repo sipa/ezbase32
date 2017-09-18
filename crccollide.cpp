@@ -139,8 +139,9 @@ public:
         memset(d, 0, sizeof(d));
     }
 
-    uint8_t& operator[](int a) { return d[a]; }
-    const uint8_t& operator[](int a) const { return d[a]; }
+    uint8_t operator[](int a) const { return d[a]; }
+
+    void Set(int pos, uint8_t val) { d[pos] = val; }
 
     bool IsZero() const {
         for (int i = 0; i < N; ++i) {
@@ -206,15 +207,22 @@ public:
 
     template<int A>
     Vector<A> Low() const {
+        static_assert(A <= N, "ow");
         Vector<A> ret;
-        memcpy(&ret[0], d, A);
+        for (int i = 0; i < A; ++i) {
+            ret.Set(i, d[i]);
+        }
         return ret;
     }
 
     template<int A>
     Vector<A> High() const {
+        static_assert(A <= N, "ow");
         Vector<A> ret;
-        memcpy(&ret[0], d + N - A, A);
+        for (int i = 0; i < A; ++i) {
+            ret.Set(i, d[i + N - A]);
+        }
+        return ret;
     }
 };
 
@@ -277,7 +285,7 @@ public:
         static_assert(R == C, "Matrix must be square");
         for (int r = 0; r < R; ++r) {
             for (int c = 0; c < R; ++c) {
-                row[r][c] = (r == c);
+                row[r].Set(c, r == c);
             }
         }
     }
@@ -286,7 +294,7 @@ public:
         Matrix<C,R> ret;
         for (int r = 0; r < R; ++r) {
             for (int c = 0; c < C; ++c) {
-                ret[c][r] = row[r][c];
+                ret[c].Set(r, row[r][c]);
             }
         }
         return ret;
@@ -386,7 +394,7 @@ Vector<RM> Multiply(const Matrix<RM,CM>& m, const Vector<CM>& v) {
     for (int t = 0; t < CM; ++t) {
         auto ptr = multable.ptr(v[t]);
         for (int r = 0; r < RM; ++r) {
-            ret[r] ^= ptr[m[r][t]];
+            ret.Set(r, ret[r] ^ ptr[m[r][t]]);
         }
     }
     return ret;
@@ -412,12 +420,12 @@ PartialSolution<N> PartialSolve(const Matrix<N, N>& equations) {
         if (residual[r].IsZero()) {
             ret.constraints[def_num] = inverse[r];
             for (int c = 0; c < N; ++c) {
-                ret.freedom[def_num][c] = residual[c][r] ^ (r == c);
+                ret.freedom[def_num].Set(c, residual[c][r] ^ (r == c));
             }
             ++def_num;
         } else {
             for (int c = 0; c < N; ++c) {
-                ret.solutions[r][c] = inverse[r][c];
+                ret.solutions[r].Set(c, inverse[r][c]);
             }
         }
     }
@@ -706,7 +714,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     int max = allzerobefore ? 2 : 32;
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
-        fault[pos] = x ^ rrr;
+        fault.Set(pos, x ^ rrr);
         if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
             return false;
         }
@@ -788,7 +796,7 @@ int main(int argc, char** argv) {
     if (strlen(argv[1]) == 0) {
         do {
             for (int i = 0; i < DEGREE; ++i) {
-                gen[i] = rdrand() & 0x1f;
+                gen.Set(i, rdrand() & 0x1f);
             }
             code = namecode(gen);
             if (gen[0] == 0) { printf("%s: divisible by x\n", code.c_str()); continue; }
@@ -819,7 +827,7 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "Unknown character '%c'\n", argv[1][DEGREE - 1 - i]);
                 return 1;
             }
-            gen[i] = ptr - charset;
+            gen.Set(i, ptr - charset);
         }
     }
     code = namecode(gen);
@@ -831,14 +839,14 @@ int main(int argc, char** argv) {
     basis_type basis;
     basis.resize(LENGTH);
     Vector<DEGREE> x;
-    x[0] = 1;
+    x.Set(0, 1);
 
     Matrix<DEGREE, DEGREE> rand;
     while(true) {
         Matrix<DEGREE, DEGREE> randi, res;
         for (int i = 0; i < DEGREE; ++i) {
             for (int j = 0; j < DEGREE; ++j) {
-                rand[i][j] = rdrand() & 0x1F;
+                rand[i].Set(j, rdrand() & 0x1F);
             }
         }
         randi = rand;
