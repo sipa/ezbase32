@@ -34,17 +34,21 @@ static inline uint32_t rdrand() {
 }
 
 static inline uint64_t reduce2(uint64_t x) {
-    uint64_t high = (x & 0xE0E0E0E0E0E0E0E0ULL) >> 5;
-    uint64_t low = x & 0x1F1F1F1F1F1F1F1FULL;
+    uint64_t high = (x & 0x180C06030180C060ULL) >> 5;
+    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
     return low ^ high ^ (high << 3);
 }
 
-static inline uint64_t reduce3(uint64_t x) {
-    uint64_t high1 = (x & 0x6060606060606060ULL) >> 5;
-    uint64_t high2 = (x & 0x8080808080808080ULL) >> 7;
-    uint64_t low = x & 0x1f1f1f1f1f1f1f1full;
-    return low ^ high1 ^ ((high1 ^ high2) << 3) ^ high2 ^ (high2 << 2);
+static inline uint64_t reduce4(uint64_t x) {
+    uint64_t high1 = (x & 0x180C06030180C060ULL) >> 5;
+    uint64_t high2 = (x & 0x6030180C06030180ULL) >> 7;
+    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
+    uint64_t tmp = high1 ^ high2;
+    return low ^ tmp ^ (tmp << 3) ^ (high2 << 2);
 }
+
+static const int exptable[32] = {1,2,4,8,16,9,18,13,26,29,19,15,30,21,3,6,12,24,25,27,31,23,7,14,28,17,11,22,5,10,20,1};
+static const int logtable[32] = {-1,0,1,14,2,28,15,22,3,5,29,26,16,7,23,11,4,25,6,10,30,13,27,21,17,18,8,19,24,9,12,20};
 
 static uint64_t mul0(uint64_t x) { return 0; }
 static uint64_t mul1(uint64_t x) { return x; }
@@ -54,30 +58,31 @@ static uint64_t mul4(uint64_t x) { return reduce2(x << 2); }
 static uint64_t mul5(uint64_t x) { return reduce2(x ^ (x << 2)); }
 static uint64_t mul6(uint64_t x) { return reduce2((x << 1) ^ (x << 2)); }
 static uint64_t mul7(uint64_t x) { return reduce2(x ^ (x << 1) ^ (x << 2)); }
-static uint64_t mul8(uint64_t x) { return reduce3(x << 3); }
-static uint64_t mul9(uint64_t x) { return reduce3(x ^ (x << 3)); }
-static uint64_t mul10(uint64_t x) { return reduce3((x << 1) ^ (x << 3)); }
-static uint64_t mul11(uint64_t x) { return reduce3(x ^ (x << 1) ^ (x << 3)); }
-static uint64_t mul12(uint64_t x) { return reduce3((x << 2) ^ (x << 3)); }
-static uint64_t mul13(uint64_t x) { return reduce3(x ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul14(uint64_t x) { return reduce3((x << 1) ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul15(uint64_t x) { return reduce3(x ^ (x << 1) ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul16(uint64_t x) { return mul4(mul4(x)); }
-static uint64_t mul17(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ (m4 << 2)); }
-static uint64_t mul18(uint64_t x) { uint64_t m4 = mul4(x); return reduce2((x << 1) ^ (m4 << 2)); }
-static uint64_t mul19(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ (x << 1) ^ (m4 << 2)); }
-static uint64_t mul20(uint64_t x) { uint64_t m4 = mul4(x); return reduce2((x ^ m4) << 2); }
-static uint64_t mul21(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ ((x ^ m4) << 2)); }
-static uint64_t mul22(uint64_t x) { uint64_t m4 = mul4(x); return reduce2((x << 1) ^ ((x ^ m4) << 2)); }
-static uint64_t mul23(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ (x << 1) ^ ((x ^ m4) << 2)); }
-static uint64_t mul24(uint64_t x) { uint64_t m4 = mul4(x); return reduce2((m4 << 2) ^ (m4 << 1)); }
-static uint64_t mul25(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ (m4 << 2) ^ (m4 << 1)); }
-static uint64_t mul26(uint64_t x) { uint64_t m4 = mul4(x); return reduce2((m4 << 2) ^ ((x ^ m4) << 1)); }
-static uint64_t mul27(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ (m4 << 2) ^ ((x ^ m4) << 1)); }
-static uint64_t mul28(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(m4 ^ (m4 << 1) ^ (m4 << 2)); }
-static uint64_t mul29(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ m4 ^ (m4 << 1) ^ (m4 << 2)); }
-static uint64_t mul30(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(m4 ^ ((x ^ m4) << 1) ^ (m4 << 2)); }
-static uint64_t mul31(uint64_t x) { uint64_t m4 = mul4(x); return reduce2(x ^ m4 ^ ((x ^ m4) << 1) ^ (m4 << 2)); }
+static uint64_t mul8(uint64_t x) { return reduce4(x << 3); }
+static uint64_t mul9(uint64_t x) { return reduce4(x ^ (x << 3)); }
+static uint64_t mul10(uint64_t x) { return reduce4((x << 1) ^ (x << 3)); }
+static uint64_t mul11(uint64_t x) { return reduce4(x ^ (x << 1) ^ (x << 3)); }
+static uint64_t mul12(uint64_t x) { return reduce4((x << 2) ^ (x << 3)); }
+static uint64_t mul13(uint64_t x) { return reduce4(x ^ (x << 2) ^ (x << 3)); }
+static uint64_t mul14(uint64_t x) { return reduce4((x << 1) ^ (x << 2) ^ (x << 3)); }
+static uint64_t mul15(uint64_t x) { return reduce4(x ^ (x << 1) ^ (x << 2) ^ (x << 3)); }
+static uint64_t mul16(uint64_t x) { return reduce4(x << 4); }
+static uint64_t mul17(uint64_t x) { return reduce4((x << 4) ^ x); }
+static uint64_t mul18(uint64_t x) { return reduce4((x << 4) ^ (x << 1)); }
+static uint64_t mul19(uint64_t x) { return reduce4((x << 4) ^ (x << 1) ^ x); }
+static uint64_t mul20(uint64_t x) { return reduce4((x << 4) ^ (x << 2)); }
+static uint64_t mul21(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ x); }
+static uint64_t mul22(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ (x << 1)); }
+static uint64_t mul23(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ (x << 1) ^ x); }
+static uint64_t mul24(uint64_t x) { return reduce4((x << 4) ^ (x << 3)); }
+static uint64_t mul25(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ x); }
+static uint64_t mul26(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 1)); }
+static uint64_t mul27(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 1) ^ x); }
+static uint64_t mul28(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2)); }
+static uint64_t mul29(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ x); }
+static uint64_t mul30(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ (x << 1)); }
+static uint64_t mul31(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ (x << 1) ^ x); }
+
 
 typedef uint64_t (*mulfun)(uint64_t);
 
@@ -94,9 +99,16 @@ class MulTable {
 
 public:
     MulTable() {
-        for (int i = 0; i < 32; ++i) {
-            for (int j = 0; j < 32; ++j) {
-                int p = mulfuns[i](j);
+        for (unsigned int i = 0; i < 32; ++i) {
+            for (uint64_t j = 0; j < 32; ++j) {
+                uint64_t p = (i == 0 || j == 0) ? 0 : exptable[(logtable[i] + logtable[j]) % 31];
+                assert(mulfuns[i](j) == p);
+                assert(mulfuns[i](j << 9) == p << 9);
+                assert(mulfuns[i](j << 18) == p << 18);
+                assert(mulfuns[i](j << 27) == p << 27);
+                assert(mulfuns[i](j << 36) == p << 36);
+                assert(mulfuns[i](j << 45) == p << 45);
+                assert(mulfuns[i](j << 54) == p << 54);
                 table[i][j] = p;
                 divtable[p][i] = j;
             }
