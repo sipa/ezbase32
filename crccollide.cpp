@@ -17,11 +17,11 @@
 
 #include "tinyformat.h"
 
-#define DEGREE 12
-#define LENGTH 67
-#define ERRORS 5
+#define DEGREE 6
+#define LENGTH 100
+#define ERRORS 3
 #define MAX_DEFICIENCY 2
-#define THREADS 8
+#define THREADS 1
 
 #define MIN_FACTOR_DEGREE 1
 
@@ -132,57 +132,64 @@ static const MulTable multable;
 
 template<int N>
 class Vector {
-    uint8_t d[N];
+    static constexpr int L = (N + 6) / 7;
+    uint64_t l[L];
 
 public:
     Vector() {
-        memset(d, 0, sizeof(d));
+        memset(l, 0, sizeof(l));
     }
 
-    uint8_t operator[](int a) const { return d[a]; }
+    uint8_t operator[](int a) const { return (l[a / 7] >> (9 * (a % 7))) & 0x1F; }
 
-    void Set(int pos, uint8_t val) { d[pos] = val; }
+    void Set(int a, uint8_t val) { l[a / 7] = (l[a / 7] & ~(((uint64_t)0x1f) << (9 * (a % 7)))) | (((uint64_t)val) << (9 * (a % 7))); }
 
     bool IsZero() const {
-        for (int i = 0; i < N; ++i) {
-            if (d[i] != 0) return false;
+        for (int i = 0; i < L; ++i) {
+            if (l[i] != 0) return false;
         }
         return true;
     }
 
     bool operator==(const Vector& a) const {
-        for (int i = 0; i < N; ++i) {
-            if (d[i] != a[i]) return false;
+        for (int i = 0; i < L; ++i) {
+            if (l[i] != a.l[i]) return false;
         }
         return true;
     }
 
     bool operator<(const Vector& a) const {
-        for (int i = 0; i < N; ++i) {
-            if (d[i] > a[i]) return false;
-            if (d[i] < a[i]) return true;
+        for (int i = 0; i < L; ++i) {
+            if (l[i] > a.l[i]) return false;
+            if (l[i] < a.l[i]) return true;
         }
         return false;
     }
 
     Vector<N>& operator+=(const Vector<N>& a) {
-        for (int i = 0; i < N; ++i) {
-            d[i] ^= a[i];
+        for (int i = 0; i < L; ++i) {
+            l[i] ^= a.l[i];
         }
         return *this;
     }
 
+    void SubMul(const Vector<N>& a, mulfun fn) {
+        for (int i = 0; i < L; ++i) {
+            l[i] ^= fn(a.l[i]);
+        }
+    }
+
     void SubMul(const Vector<N>& a, uint8_t v) {
-        auto ptr = multable.ptr(v);
-        for (int i = 0; i < N; ++i) {
-            d[i] ^= ptr[a[i]];
+        auto fn = mulfuns[v];
+        for (int i = 0; i < L; ++i) {
+            l[i] ^= fn(a.l[i]);
         }
     }
 
     Vector<N>& operator*=(uint8_t a) {
-        auto ptr = multable.ptr(a);
-        for (int i = 0; i < N; ++i) {
-            d[i] = ptr[d[i]];
+        auto fn = mulfuns[a];
+        for (int i = 0; i < L; ++i) {
+            l[i] = fn(l[i]);
         }
         return *this;
     }
@@ -190,17 +197,17 @@ public:
     int Weight() const {
         int ret = 0;
         for (int i = 0; i < N; ++i) {
-            ret += (d[i] != 0);
+            ret += ((*this)[i] != 0);
         }
         return ret;
     }
 
     void PolyMulXMod(const Vector<N>& mod) {
-        auto ptr = multable.ptr(d[N - 1]);
+        auto ptr = multable.ptr((*this)[N - 1]);
         uint8_t over = 0;
         for (int i = 0; i < N; ++i) {
-            uint8_t nover = d[i];
-            d[i] = over ^ ptr[mod[i]];
+            uint8_t nover = (*this)[i];
+            Set(i, over ^ ptr[mod[i]]);
             over = nover;
         }
     }
@@ -210,7 +217,7 @@ public:
         static_assert(A <= N, "ow");
         Vector<A> ret;
         for (int i = 0; i < A; ++i) {
-            ret.Set(i, d[i]);
+            ret.Set(i, (*this)[i]);
         }
         return ret;
     }
@@ -220,7 +227,7 @@ public:
         static_assert(A <= N, "ow");
         Vector<A> ret;
         for (int i = 0; i < A; ++i) {
-            ret.Set(i, d[i + N - A]);
+            ret.Set(i, (*this)[i + N - A]);
         }
         return ret;
     }
@@ -388,6 +395,30 @@ public:
     }
 };
 
+template<int R, int C>
+class Transform {
+    Vector<R> column[C];
+
+public:
+    Transform() {}
+
+    Transform(const Matrix<R, C>& mat) {
+        for (int r = 0; r < R; ++r) {
+            for (int c = 0; c < C; ++c) {
+                column[c].Set(r, mat[r][c]);
+            }
+        }
+    }
+
+    Vector<R> Apply(const Vector<C>& in) const {
+        Vector<R> out;
+        for (int c = 0; c < C; ++c) {
+            out.SubMul(column[c], in[c]);
+        }
+        return out;
+    }
+};
+
 template<int RM, int CM>
 Vector<RM> Multiply(const Matrix<RM,CM>& m, const Vector<CM>& v) {
     Vector<RM> ret;
@@ -403,7 +434,7 @@ Vector<RM> Multiply(const Matrix<RM,CM>& m, const Vector<CM>& v) {
 template<int N>
 struct PartialSolution {
     Vector<N> constraints[MAX_DEFICIENCY];
-    Matrix<N, N> solutions;
+    Transform<N, N> solutions;
     Vector<N> freedom[MAX_DEFICIENCY];
     int deficiency;
 };
@@ -413,6 +444,7 @@ PartialSolution<N> PartialSolve(const Matrix<N, N>& equations) {
     PartialSolution<N> ret;
     Matrix<N, N> inverse = equations;
     Matrix<N, N> residual;
+    Matrix<N, N> solutions;
     int rank = inverse.Invert(residual);
     assert(rank >= N - MAX_DEFICIENCY);
     int def_num = 0;
@@ -425,10 +457,11 @@ PartialSolution<N> PartialSolve(const Matrix<N, N>& equations) {
             ++def_num;
         } else {
             for (int c = 0; c < N; ++c) {
-                ret.solutions[r].Set(c, inverse[r][c]);
+                solutions[r].Set(c, inverse[r][c]);
             }
         }
     }
+    ret.solutions = Transform<N, N>(solutions);
     ret.deficiency = def_num;
     assert(def_num == N - rank);
     return ret;
@@ -440,7 +473,7 @@ uint64_t BaseSolution(Vector<N>& base_sol, const PartialSolution<N>& partial, co
         uint8_t check = Multiply(partial.constraints[def_num], knowns);
         if (check) return 0;
     }
-    base_sol = Multiply(partial.solutions, knowns);
+    base_sol = partial.solutions.Apply(knowns);
     return ((uint64_t)1) << (5 * partial.deficiency);
 }
 
