@@ -33,6 +33,85 @@ static inline uint32_t rdrand() {
     return ret;
 }
 
+static constexpr int exptable[32] = {1,2,4,8,16,9,18,13,26,29,19,15,30,21,3,6,12,24,25,27,31,23,7,14,28,17,11,22,5,10,20,1};
+static constexpr int logtable[32] = {-1,0,1,14,2,28,15,22,3,5,29,26,16,7,23,11,4,25,6,10,30,13,27,21,17,18,8,19,24,9,12,20};
+
+static constexpr uint8_t gf32_mul(uint8_t x, uint8_t y) { return (x == 0 || y == 0) ? 0 : exptable[(logtable[x] + logtable[y]) % 31]; }
+
+struct MulTable {
+    uint8_t table[32][32];
+    uint8_t invtable[32];
+
+    MulTable() {
+        for (unsigned int i = 0; i < 32; ++i) {
+            for (uint64_t j = 0; j < 32; ++j) {
+                uint8_t p = gf32_mul(i, j);
+                table[i][j] = p;
+                if (p == 1) {
+                    invtable[i] = j;
+                }
+            }
+        }
+        for (unsigned int i = 1; i < 32; ++i) {
+            assert(invtable[invtable[i]] == i);
+            assert(table[i][invtable[i]] == 1);
+        }
+    }
+};
+
+static const MulTable multable;
+
+struct Char {
+    static constexpr int Count = 1;
+    uint8_t v;
+
+    Char() : v(0) {}
+
+    void Set(int pos, uint8_t val) {
+        v = val;
+    }
+
+    uint8_t Get(int pos) const { return v; }
+    bool IsZero() const { return v == 0; }
+    bool IsZero(int pos) const { return v == 0; }
+    bool IsOne(int pos) const { return v == 1; }
+    int Cmp(Char x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
+    void Xor(Char x) { v ^= x.v; }
+
+    void SubMul(Char x, const uint8_t val) {
+        v ^= multable.table[val][x.v];
+    }
+};
+
+template<typename T, int N>
+struct Pack {
+    static constexpr int Count = N;
+    static_assert(std::is_unsigned<T>::value, "T must be unsigned");
+    static_assert(std::numeric_limits<T>::max() >> (5 * N - 1), "T not large enough");
+
+    T v;
+    Pack() : v(0) {}
+    void Set(int pos, uint8_t val) {
+        v = (v & ~(((T)31) << (5 * pos))) | (((T)val) << (5 * pos));
+    }
+
+    uint8_t Get(int pos) const {
+        return (v >> (5 * pos)) & 31;
+    }
+
+    bool IsZero() const { return v == 0; }
+    bool IsZero(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 0; }
+    bool IsOne(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 1; }
+    int Cmp(Pack x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
+    void Xor(Pack x) { v ^= x.v; }
+
+    void SubMul(Pack x, const uint8_t val) {
+        for (int i = 0; i < Count; ++i) {
+            v ^= (((T)(multable.table[val][(x.v >> (5 * i)) & 0x1f])) << (5 * i));
+        }
+    }
+};
+
 static inline uint64_t reduce2(uint64_t x) {
     uint64_t high = (x & 0x180C06030180C060ULL) >> 5;
     uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
@@ -47,163 +126,122 @@ static inline uint64_t reduce4(uint64_t x) {
     return low ^ tmp ^ (tmp << 3) ^ (high2 << 2);
 }
 
-static const int exptable[32] = {1,2,4,8,16,9,18,13,26,29,19,15,30,21,3,6,12,24,25,27,31,23,7,14,28,17,11,22,5,10,20,1};
-static const int logtable[32] = {-1,0,1,14,2,28,15,22,3,5,29,26,16,7,23,11,4,25,6,10,30,13,27,21,17,18,8,19,24,9,12,20};
+template<typename I, int N>
+struct BitsX {
+    static constexpr int Count = N;
+    I v;
 
-static uint64_t mul0(uint64_t x) { return 0; }
-static uint64_t mul1(uint64_t x) { return x; }
-static uint64_t mul2(uint64_t x) { return reduce2(x << 1); }
-static uint64_t mul3(uint64_t x) { return reduce2(x ^ (x << 1)); }
-static uint64_t mul4(uint64_t x) { return reduce2(x << 2); }
-static uint64_t mul5(uint64_t x) { return reduce2(x ^ (x << 2)); }
-static uint64_t mul6(uint64_t x) { return reduce2((x << 1) ^ (x << 2)); }
-static uint64_t mul7(uint64_t x) { return reduce2(x ^ (x << 1) ^ (x << 2)); }
-static uint64_t mul8(uint64_t x) { return reduce4(x << 3); }
-static uint64_t mul9(uint64_t x) { return reduce4(x ^ (x << 3)); }
-static uint64_t mul10(uint64_t x) { return reduce4((x << 1) ^ (x << 3)); }
-static uint64_t mul11(uint64_t x) { return reduce4(x ^ (x << 1) ^ (x << 3)); }
-static uint64_t mul12(uint64_t x) { return reduce4((x << 2) ^ (x << 3)); }
-static uint64_t mul13(uint64_t x) { return reduce4(x ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul14(uint64_t x) { return reduce4((x << 1) ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul15(uint64_t x) { return reduce4(x ^ (x << 1) ^ (x << 2) ^ (x << 3)); }
-static uint64_t mul16(uint64_t x) { return reduce4(x << 4); }
-static uint64_t mul17(uint64_t x) { return reduce4((x << 4) ^ x); }
-static uint64_t mul18(uint64_t x) { return reduce4((x << 4) ^ (x << 1)); }
-static uint64_t mul19(uint64_t x) { return reduce4((x << 4) ^ (x << 1) ^ x); }
-static uint64_t mul20(uint64_t x) { return reduce4((x << 4) ^ (x << 2)); }
-static uint64_t mul21(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ x); }
-static uint64_t mul22(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ (x << 1)); }
-static uint64_t mul23(uint64_t x) { return reduce4((x << 4) ^ (x << 2) ^ (x << 1) ^ x); }
-static uint64_t mul24(uint64_t x) { return reduce4((x << 4) ^ (x << 3)); }
-static uint64_t mul25(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ x); }
-static uint64_t mul26(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 1)); }
-static uint64_t mul27(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 1) ^ x); }
-static uint64_t mul28(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2)); }
-static uint64_t mul29(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ x); }
-static uint64_t mul30(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ (x << 1)); }
-static uint64_t mul31(uint64_t x) { return reduce4((x << 4) ^ (x << 3) ^ (x << 2) ^ (x << 1) ^ x); }
-
-
-typedef uint64_t (*mulfun)(uint64_t);
-
-static const mulfun mulfuns[32] = {
-    mul0,mul1,mul2,mul3,mul4,mul5,mul6,mul7,
-    mul8,mul9,mul10,mul11,mul12,mul13,mul14,mul15,
-    mul16,mul17,mul18,mul19,mul20,mul21,mul22,mul23,
-    mul24,mul25,mul26,mul27,mul28,mul29,mul30,mul31
-};
-
-class MulTable {
-    uint8_t table[32][32];
-    uint8_t divtable[32][32];
-
-public:
-    MulTable() {
-        for (unsigned int i = 0; i < 32; ++i) {
-            for (uint64_t j = 0; j < 32; ++j) {
-                uint64_t p = (i == 0 || j == 0) ? 0 : exptable[(logtable[i] + logtable[j]) % 31];
-                assert(mulfuns[i](j) == p);
-                assert(mulfuns[i](j << 9) == p << 9);
-                assert(mulfuns[i](j << 18) == p << 18);
-                assert(mulfuns[i](j << 27) == p << 27);
-                assert(mulfuns[i](j << 36) == p << 36);
-                assert(mulfuns[i](j << 45) == p << 45);
-                assert(mulfuns[i](j << 54) == p << 54);
-                table[i][j] = p;
-                divtable[p][i] = j;
-            }
-        }
+    BitsX() : v(0) {
+        static_assert(std::is_unsigned<I>::value, "I must be unsigned");
+        static_assert(std::numeric_limits<I>::max() >> (9 * N - 1), "I must be large enough");
     }
 
-    uint8_t mul(uint8_t a, uint8_t b) const {
-        return table[a][b];
+    void Set(int pos, uint8_t val) {
+        v = (v & ~(((I)31) << (9 * pos))) | (((I)val) << (9 * pos));
     }
 
-    uint8_t div(uint8_t a, uint8_t b) const {
-        return divtable[a][b];
+    uint8_t Get(int pos) const {
+        return (v >> (9 * pos)) & 0x1f;
     }
 
-    const uint8_t* ptr(uint8_t a) const {
-        return table[a];
+    bool IsZero() const { return v == 0; }
+    bool IsZero(int pos) const { return ((v >> (9 * pos)) & 0x1f) == 0; }
+    bool IsOne(int pos) const { return ((v >> (9 * pos)) & 0x1f) == 1; }
+
+    int Cmp(BitsX x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
+
+    void Xor(BitsX x) { v ^= x.v; }
+
+    void SubMul(BitsX x, uint8_t val) {
+        v ^= reduce4(((val & 1) ? x.v : 0) ^ ((val & 2) ? (x.v << 1) : 0) ^ ((val & 4) ? (x.v << 2) : 0) ^ ((val & 8) ? (x.v << 3) : 0) ^ ((val & 16) ? (x.v << 4) : 0));
     }
 };
 
-static const MulTable multable;
+template<int N> struct Config;
+template<> struct Config<1> { typedef Char Elem; };
+template<> struct Config<2> { typedef Char Elem; };
+template<> struct Config<3> { typedef Char Elem; };
+template<> struct Config<4> { typedef Char Elem; };
+template<> struct Config<5> { typedef Char Elem; };
+template<> struct Config<6> { typedef Char Elem; };
+template<> struct Config<7> { typedef Char Elem; };
+template<> struct Config<8> { typedef Char Elem; };
+template<> struct Config<9> { typedef Char Elem; };
+template<> struct Config<10> { typedef Char Elem; };
+template<> struct Config<11> { typedef Char Elem; };
+template<> struct Config<12> { typedef Char Elem; };
+template<> struct Config<13> { typedef Char Elem; };
+template<> struct Config<14> { typedef Char Elem; };
+template<> struct Config<15> { typedef Char Elem; };
+template<> struct Config<16> { typedef Char Elem; };
 
 template<int N>
 class Vector {
-    static constexpr int L = (N + 6) / 7;
-    uint64_t l[L];
+    typedef typename Config<N>::Elem Elem;
+    static constexpr int Count = Elem::Count;
+
+    static constexpr int E = (N + Count - 1) / Count;
+    Elem e[E];
 
 public:
-    Vector() {
-        memset(l, 0, sizeof(l));
-    }
-
-    uint8_t operator[](int a) const { return (l[a / 7] >> (9 * (a % 7))) & 0x1F; }
-
-    void Set(int a, uint8_t val) { l[a / 7] = (l[a / 7] & ~(((uint64_t)0x1f) << (9 * (a % 7)))) | (((uint64_t)val) << (9 * (a % 7))); }
+    uint8_t operator[](int a) const { return e[a / Count].Get(a % Count); }
+    void Set(int a, uint8_t val) { e[a / Count].Set(a % Count, val); }
 
     bool IsZero() const {
-        for (int i = 0; i < L; ++i) {
-            if (l[i] != 0) return false;
+        for (int i = 0; i < E; ++i) {
+            if (!e[i].IsZero()) return false;
         }
         return true;
     }
 
     bool IsZero(int pos) const {
-        return (*this)[pos] == 0;
+        return e[pos / Count].IsZero(pos % Count);
     }
 
     bool IsOne(int pos) const {
-        return (*this)[pos] == 1;
+        return e[pos / Count].IsOne(pos % Count);
     }
 
     bool operator==(const Vector& a) const {
-        for (int i = 0; i < L; ++i) {
-            if (l[i] != a.l[i]) return false;
+        for (int i = 0; i < E; ++i) {
+            if (e[i].Cmp(a.e[i])) return false;
         }
         return true;
     }
 
     bool operator<(const Vector& a) const {
-        for (int i = 0; i < L; ++i) {
-            if (l[i] > a.l[i]) return false;
-            if (l[i] < a.l[i]) return true;
+        for (int i = 0; i < E; ++i) {
+            int c = e[i].Cmp(a.e[i]);
+            if (c < 0) return true;
+            if (c > 0) return false;
         }
         return false;
     }
 
-    Vector<N>& operator+=(const Vector<N>& a) {
-        for (int i = 0; i < L; ++i) {
-            l[i] ^= a.l[i];
+    Vector<N>& operator+=(const Vector& a) {
+        for (int i = 0; i < E; ++i) {
+            e[i].Xor(a.e[i]);
         }
         return *this;
     }
 
-    void SubMul(const Vector<N>& a, mulfun fn) {
-        for (int i = 0; i < L; ++i) {
-            l[i] ^= fn(a.l[i]);
-        }
-    }
-
-    void SubMul(const Vector<N>& a, uint8_t v) {
-        auto fn = mulfuns[v];
-        for (int i = 0; i < L; ++i) {
-            l[i] ^= fn(a.l[i]);
+    void SubMul(const Vector& a, uint8_t v) {
+        for (int i = 0; i < E; ++i) {
+            e[i].SubMul(a.e[i], v);
         }
     }
 
     Vector<N>& operator*=(uint8_t a) {
-        auto fn = mulfuns[a];
-        for (int i = 0; i < L; ++i) {
-            l[i] = fn(l[i]);
+        for (int i = 0; i < E; ++i) {
+            Elem elem;
+            elem.SubMul(e[i], a);
+            e[i] = elem;
         }
         return *this;
     }
 
-    void PolyMulXMod(const Vector<N>& mod) {
-        auto ptr = multable.ptr((*this)[N - 1]);
+    void PolyMulXMod(const Vector& mod) {
+        auto ptr = multable.table[(*this)[N - 1]];
         uint8_t over = 0;
         for (int i = 0; i < N; ++i) {
             uint8_t nover = (*this)[i];
@@ -266,7 +304,7 @@ template<int A>
 uint8_t Multiply(const Vector<A>& a, const Vector<A>& b) {
     uint8_t ret = 0;
     for (int i = 0; i < A; ++i) {
-        ret ^= multable.mul(a[i], b[i]);
+        ret ^= multable.table[a[i]][b[i]];
     }
     return ret;
 }
@@ -324,7 +362,6 @@ public:
         return *this;
     }
 
-
     int Invert(Matrix<R,R>& res) {
         static_assert(R == C, "Matrix must be square");
         res = *this;
@@ -348,7 +385,8 @@ public:
                     continue;
                 }
             }
-            uint8_t i = multable.div(1, res[r][c]);
+            uint8_t i = multable.invtable[res[r][c]];
+            assert(!res[r].IsZero(c));
             res.MulRow(r, i);
             MulRow(r, i);
             assert(res[r].IsOne(c));
@@ -623,6 +661,11 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             for (int i = 0; i < ERRORS; ++i) {
                 bigfault.SubMul(basis[ps.first[i]], ext_errors[i]);
             }
+#ifndef NDEBUG
+            for (int i = 0; i < ERRORS; ++i) {
+                assert(bigfault[i] == fault[i]);
+            }
+#endif
 
             if (allzerobefore) {
                 for (int i = ERRORS; i < DEGREE; ++i) {
@@ -789,8 +832,59 @@ std::string namecode(const Vector<DEGREE>& v) {
    return ret;
 }
 
+template<typename I, typename J>
+void ElemTest() {
+    for (int ip = 0; ip < I::Count; ++ip) {
+        for (int jp = 0; jp < J::Count; ++jp) {
+            for (int x = 0; x < 32; ++x) {
+                for (int y = 0; y < 32; ++y) {
+                    for (int z = 0; z < 32; ++z) {
+                        I i1, i2;
+                        J j1, j2;
+                        i1.Set(ip, x);
+                        j1.Set(jp, x);
+                        assert(i1.IsZero() == (x == 0));
+                        assert(j1.IsZero() == (x == 0));
+                        assert(i1.IsZero(ip) == (x == 0));
+                        assert(j1.IsZero(jp) == (x == 0));
+                        assert(i1.IsOne(ip) == (x == 1));
+                        assert(j1.IsOne(jp) == (x == 1));
+                        assert(j1.Get(jp) == i1.Get(ip));
+                        i2.Set(ip, y);
+                        j2.Set(jp, y);
+                        assert(i2.IsZero() == (y == 0));
+                        assert(j2.IsZero() == (y == 0));
+                        assert(i2.IsZero(ip) == (y == 0));
+                        assert(j2.IsZero(jp) == (y == 0));
+                        assert(i2.IsOne(ip) == (y == 1));
+                        assert(j2.IsOne(jp) == (y == 1));
+                        assert(j2.Get(jp) == i2.Get(ip));
+                        i1.Xor(i2);
+                        j1.Xor(j2);
+                        assert((i1.Cmp(i2) == 0) == (j1.Cmp(j2) == 0));
+                        assert(i1.Get(ip) == j1.Get(jp));
+                        assert(i1.Get(ip) == (x ^ y));
+                        assert(i2.IsZero() == j2.IsZero());
+                        assert(i2.IsZero(ip) == j2.IsZero(jp));
+                        assert(i2.IsOne(ip) == j2.IsOne(jp));
+                        i2.SubMul(i1, z);
+                        j2.SubMul(j1, z);
+                        assert(i1.Get(ip) == j1.Get(jp));
+                        assert(i2.Get(ip) == j2.Get(jp));
+                        assert((i1.Cmp(i2)) == (j1.Cmp(j2)));
+                        assert(i2.IsZero() == j2.IsZero());
+                        assert(i2.IsZero(ip) == j2.IsZero(jp));
+                        assert(i2.IsOne(ip) == j2.IsOne(jp));
+                    }
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
+//    ElemTest<Char, Bits<uint64_t>>();
     Vector<DEGREE> gen;
     if (argc < 2 || (strlen(argv[1]) != DEGREE && strlen(argv[1]) != 0)) {
         fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
