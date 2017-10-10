@@ -18,10 +18,10 @@
 #include "tinyformat.h"
 
 #define DEGREE 6
-#define LENGTH 100
+#define LENGTH 90
 #define ERRORS 3
 #define MAX_DEFICIENCY 2
-#define THREADS 1
+#define THREADS 8
 
 #define MIN_FACTOR_DEGREE 1
 
