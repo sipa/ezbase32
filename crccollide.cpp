@@ -883,6 +883,7 @@ int main(int argc, char** argv) {
     x.Set(0, 1);
 
     Matrix<DEGREE, DEGREE> rand;
+    Transform<DEGREE, DEGREE> rand_trans;
     while(true) {
         Matrix<DEGREE, DEGREE> randi, res;
         for (int i = 0; i < DEGREE; ++i) {
@@ -892,14 +893,14 @@ int main(int argc, char** argv) {
         }
         randi = rand;
         int rank = randi.Invert(res);
-        if (rank == DEGREE) break;
+        if (rank == DEGREE) { rand_trans = Transform<DEGREE, DEGREE>(rand); break; }
     }
 
     assert(LENGTH >= DEGREE);
 
     for (int i = 0; i < LENGTH; ++i) {
         Vector<DEGREE> base = x.Low<DEGREE>();
-        basis[i] = Multiply(rand, base);
+        basis[i] = rand_trans.Apply(base);
         x.PolyMulXMod(gen);
     }
 
