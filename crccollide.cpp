@@ -202,14 +202,6 @@ public:
         return *this;
     }
 
-    int Weight() const {
-        int ret = 0;
-        for (int i = 0; i < N; ++i) {
-            ret += ((*this)[i] != 0);
-        }
-        return ret;
-    }
-
     void PolyMulXMod(const Vector<N>& mod) {
         auto ptr = multable.ptr((*this)[N - 1]);
         uint8_t over = 0;
@@ -276,15 +268,6 @@ uint8_t Multiply(const Vector<A>& a, const Vector<A>& b) {
     for (int i = 0; i < A; ++i) {
         ret ^= multable.mul(a[i], b[i]);
     }
-    return ret;
-}
-
-template<int A, int B>
-Vector<A+B> Concat(const Vector<A>& a, const Vector<B>& b)
-{
-    Vector<A+B> ret;
-    memcpy(&ret[0], &a[0], A);
-    memcpy(&ret[A], &b[0], B);
     return ret;
 }
 
@@ -427,18 +410,6 @@ public:
     }
 };
 
-template<int RM, int CM>
-Vector<RM> Multiply(const Matrix<RM,CM>& m, const Vector<CM>& v) {
-    Vector<RM> ret;
-    for (int t = 0; t < CM; ++t) {
-        auto ptr = multable.ptr(v[t]);
-        for (int r = 0; r < RM; ++r) {
-            ret.Set(r, ret[r] ^ ptr[m[r][t]]);
-        }
-    }
-    return ret;
-}
-
 template<int N>
 struct PartialSolution {
     Vector<N> constraints[MAX_DEFICIENCY];
@@ -500,9 +471,6 @@ struct Result {
     int max_pos;
     int num_err;
     int pos[ERRORS];
-
-/*    Vector<ERRORS> err;
-    std::array<int, ERRORS> pos;*/
 
     Result(const Vector<DEGREE>& fault_, int min_pos_, int max_pos_, int num_err_) : fault(fault_), min_pos(min_pos_), max_pos(max_pos_), num_err(num_err_) {}
 
@@ -598,9 +566,6 @@ void RecursePositions(int idx, int errors, int min, int max, std::array<int, ERR
         }
         rr = rr.Transpose();
         psol.push_back(std::make_pair(pos, PartialSolve(rr)));
-/*        if (psol.back().second.deficiency) {
-            printf("Deficient %i: %i %i %i\n", psol.back().second.deficiency, pos[0], pos[1], pos[2]);
-        }*/
         return;
     }
     for (pos[idx] = min; pos[idx] < max; ++pos[idx]) {
@@ -641,7 +606,7 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
         for (uint64_t sol = 0; sol < solcount; ++sol) {
             Vector<ERRORS> ext_errors = ExtSolution(base_errors, ps.second, sol);
 
-            /* Filter out duplicates for fewer errors than max */
+            // Filter out duplicates for fewer errors than max
             bool consec = true;
             bool ok = true;
             for (int i = 0; i < ERRORS; ++i) {
@@ -657,9 +622,6 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             Vector<DEGREE> bigfault;
             for (int i = 0; i < ERRORS; ++i) {
                 bigfault.SubMul(basis[ps.first[i]], ext_errors[i]);
-            }
-            for (int i = 0; i < ERRORS; ++i) {
-                assert(bigfault[i] == fault[i]);
             }
 
             if (allzerobefore) {
