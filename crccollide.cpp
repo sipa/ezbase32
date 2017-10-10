@@ -151,6 +151,14 @@ public:
         return true;
     }
 
+    bool IsZero(int pos) const {
+        return (*this)[pos] == 0;
+    }
+
+    bool IsOne(int pos) const {
+        return (*this)[pos] == 1;
+    }
+
     bool operator==(const Vector& a) const {
         for (int i = 0; i < L; ++i) {
             if (l[i] != a.l[i]) return false;
@@ -340,10 +348,10 @@ public:
         MakeIdentity();
         int r = 0;
         for (int c = 0; c < C; ++c) {
-            if (res[r][c] == 0) {
+            if (res[r].IsZero(c)) {
                 int r2 = r + 1;
                 while (r2 < R) {
-                    if (res[r2][c] != 0) {
+                    if (!res[r2].IsZero(c)) {
                         res.SwapRows(r2, r);
                         SwapRows(r2, r);
                         break;
@@ -351,22 +359,22 @@ public:
                     ++r2;
                 }
                 if (r2 < R) {
-                    assert(res[r][c] != 0);
+                    assert(!res[r].IsZero(c));
                 } else {
-                    assert(res[r][c] == 0);
+                    assert(res[r].IsZero(c));
                     continue;
                 }
             }
             uint8_t i = multable.div(1, res[r][c]);
             res.MulRow(r, i);
             MulRow(r, i);
-            assert(res[r][c] == 1);
+            assert(res[r].IsOne(c));
             for (int r2 = 0; r2 < R; ++r2) {
                 if (r2 != r) {
                     uint8_t i = res[r2][c];
                     res.SubMulRow(r2, r, i);
                     SubMulRow(r2, r, i);
-                    assert(res[r2][c] == 0);
+                    assert(res[r2].IsZero(c));
                 }
             }
             ++r;
@@ -375,13 +383,13 @@ public:
         for (int c = 0; c < C; ++c) {
             int solvepos = -1;
             for (int r = 0; r < R; ++r) {
-                if (res[r][c] != 0 && res[r][c] != 1) {
+                if (!res[r].IsZero(c) && !res[r].IsOne(c)) {
                     solvepos = -2;
                     break;
                 }
-                if (solvepos == -1 && res[r][c] == 1) {
+                if (solvepos == -1 && res[r].IsOne(c)) {
                     solvepos = r;
-                } else if (solvepos != -1 && res[r][c] != 0) {
+                } else if (solvepos != -1 && !res[r].IsZero(c)) {
                     solvepos = -2;
                     break;
                 }
@@ -638,7 +646,7 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             bool ok = true;
             for (int i = 0; i < ERRORS; ++i) {
                 consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : 0));
-                if (ext_errors[i] == 0 && !consec) {
+                if (ext_errors.IsZero(i) && !consec) {
                     ok = false;
                     break;
                 }
@@ -656,8 +664,8 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
 
             if (allzerobefore) {
                 for (int i = ERRORS; i < DEGREE; ++i) {
-                    if (bigfault[i] != 0) {
-                        ok = (bigfault[i] == 1);
+                    if (!bigfault.IsZero(i)) {
+                        ok = (bigfault.IsOne(i));
                         break;
                     }
                 }
@@ -748,7 +756,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault.Set(pos, x ^ rrr);
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos] == 0, fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault.IsZero(pos), fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
             return false;
         }
     }
