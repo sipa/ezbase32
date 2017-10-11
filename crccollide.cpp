@@ -175,6 +175,7 @@ template<> struct Config<14> { typedef Char Elem; };
 template<> struct Config<15> { typedef Char Elem; };
 template<> struct Config<16> { typedef Char Elem; };
 
+
 template<int N>
 class Vector {
     typedef typename Config<N>::Elem Elem;
@@ -305,6 +306,19 @@ uint8_t Multiply(const Vector<A>& a, const Vector<A>& b) {
     uint8_t ret = 0;
     for (int i = 0; i < A; ++i) {
         ret ^= multable.table[a[i]][b[i]];
+    }
+    return ret;
+}
+
+template<int A, int B>
+Vector<A+B> Concat(const Vector<A>& a, const Vector<B>& b)
+{
+    Vector<A+B> ret;
+    for (int i = 0; i < A; ++i) {
+        ret.Set(i, a[i]);
+    }
+    for (int i = 0; i < B; ++i) {
+        ret.Set(i + A, b[i]);
     }
     return ret;
 }
@@ -535,6 +549,7 @@ struct Result {
 
 typedef std::vector<Result> result_type;
 typedef std::vector<Vector<DEGREE>> basis_type;
+typedef std::vector<Vector<DEGREE-ERRORS>> extbasis_type;
 typedef std::vector<std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>> psol_type;
 
 bool ComparePsol(const std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>& a, const std::pair<std::array<int, ERRORS>, PartialSolution<ERRORS>>& b) {
@@ -636,7 +651,7 @@ static constexpr long double total_comb() {
 
 static constexpr long double denom = 1.0L / total_comb();
 
-static void ExpandSolutions(result_type& res, const basis_type& basis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore) {
+static void ExpandSolutions(result_type& res, const extbasis_type& extbasis, const psol_type& psol, const Vector<ERRORS>& fault, bool allzerobefore) {
     res.reserve(psol.size() * 2);
     for (const auto& ps : psol) {
         Vector<ERRORS> base_errors;
@@ -657,15 +672,11 @@ static void ExpandSolutions(result_type& res, const basis_type& basis, const pso
             if (!ok) continue;
 
             // Compute the full fault and verify it
-            Vector<DEGREE> bigfault;
+            Vector<DEGREE-ERRORS> extbigfault;
             for (int i = 0; i < ERRORS; ++i) {
-                bigfault.SubMul(basis[ps.first[i]], ext_errors[i]);
+                extbigfault.SubMul(extbasis[ps.first[i]], ext_errors[i]);
             }
-#ifndef NDEBUG
-            for (int i = 0; i < ERRORS; ++i) {
-                assert(bigfault[i] == fault[i]);
-            }
-#endif
+            Vector<DEGREE> bigfault = Concat(fault, extbigfault);
 
             if (allzerobefore) {
                 for (int i = ERRORS; i < DEGREE; ++i) {
@@ -705,7 +716,7 @@ static bool CompareResultPointer(const Result* a, const Result* b) {
     return (*a) < (*b);
 }
 
-bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const basis_type& basis, int part, uint64_t hash, LockedErrCount& err) {
+bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const extbasis_type& extbasis, int part, uint64_t hash, LockedErrCount& err) {
     if (pos == ERRORS) {
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
         if (err.cleanup.load(std::memory_order_relaxed)) {
@@ -714,7 +725,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
 
         ErrCount local_err;
         result_type res;
-        ExpandSolutions(res, basis, psol, fault, allzerobefore);
+        ExpandSolutions(res, extbasis, psol, fault, allzerobefore);
         local_err.total = res.size();
 
         std::vector<const Result*> sres[1024];
@@ -761,7 +772,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
     int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
     for (int x = 0; x < max; ++x) {
         fault.Set(pos, x ^ rrr);
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault.IsZero(pos), fault, psol, basis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault.IsZero(pos), fault, psol, extbasis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
             return false;
         }
     }
@@ -770,9 +781,9 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
 
 static const char* charset = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-void run_thread(const psol_type* partials, const basis_type* basis, int part, LockedErrCount* locs) {
+void run_thread(const psol_type* partials, const extbasis_type* extbasis, int part, LockedErrCount* locs) {
     Vector<ERRORS> faults;
-    (void)RecurseShortFaults(0, true, faults, *partials, *basis, part, 0, *locs);
+    (void)RecurseShortFaults(0, true, faults, *partials, *extbasis, part, 0, *locs);
 }
 
 using namespace std::chrono_literals;
@@ -791,7 +802,7 @@ void show_stats(const ErrCount& results) {
     }
 }
 
-bool testalot(const basis_type* basis, ErrCount* res) {
+bool testalot(const basis_type* basis, const extbasis_type* extbasis, ErrCount* res) {
     psol_type partials;
     std::array<int, ERRORS> pos;
     RecursePositions(0, ERRORS, 0, LENGTH, pos, partials, *basis);
@@ -800,10 +811,10 @@ bool testalot(const basis_type* basis, ErrCount* res) {
 #if THREADS > 1
     std::vector<std::thread> t;
     for (int part = 0; part < THREADS - 1; ++part) {
-        t.emplace_back(&run_thread, &partials, basis, part, &ret);
+        t.emplace_back(&run_thread, &partials, extbasis, part, &ret);
     }
 #endif
-    run_thread(&partials, basis, THREADS - 1, &ret);
+    run_thread(&partials, extbasis, THREADS - 1, &ret);
 #if THREADS > 1
     for (int part = 0; part < THREADS - 1; ++part) {
         t[part].join();
@@ -934,7 +945,9 @@ int main(int argc, char** argv) {
     if (argc >= 4) { require_len = strtoul(argv[3], NULL, 0); }
 
     basis_type basis;
+    extbasis_type extbasis;
     basis.resize(LENGTH);
+    extbasis.resize(LENGTH);
     Vector<DEGREE> x;
     x.Set(0, 1);
 
@@ -957,12 +970,13 @@ int main(int argc, char** argv) {
     for (int i = 0; i < LENGTH; ++i) {
         Vector<DEGREE> base = x.Low<DEGREE>();
         basis[i] = rand_trans.Apply(base);
+        extbasis[i] = basis[i].High<DEGREE-ERRORS>();
         x.PolyMulXMod(gen);
     }
 
     ErrCount locs;
     locs.errors = 0;
-    testalot(&basis, &locs);
+    testalot(&basis, &extbasis, &locs);
     if (locs.errors == 0) {
         show_stats(locs);
     }
