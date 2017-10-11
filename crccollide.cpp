@@ -158,23 +158,11 @@ struct BitsX {
 };
 
 template<int N> struct Config;
-template<> struct Config<1> { typedef Char Elem; };
-template<> struct Config<2> { typedef Char Elem; };
 template<> struct Config<3> { typedef Char Elem; };
 template<> struct Config<4> { typedef Char Elem; };
-template<> struct Config<5> { typedef Char Elem; };
-template<> struct Config<6> { typedef Char Elem; };
-template<> struct Config<7> { typedef Char Elem; };
+template<> struct Config<6> { typedef BitsX<uint64_t, 6> Elem; };
 template<> struct Config<8> { typedef Char Elem; };
-template<> struct Config<9> { typedef Char Elem; };
-template<> struct Config<10> { typedef Char Elem; };
-template<> struct Config<11> { typedef Char Elem; };
-template<> struct Config<12> { typedef Char Elem; };
-template<> struct Config<13> { typedef Char Elem; };
-template<> struct Config<14> { typedef Char Elem; };
-template<> struct Config<15> { typedef Char Elem; };
-template<> struct Config<16> { typedef Char Elem; };
-
+template<> struct Config<12> { typedef Pack<uint64_t, 12> Elem; };
 
 template<int N>
 class Vector {
@@ -895,7 +883,8 @@ void ElemTest() {
 
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
-//    ElemTest<Char, Bits<uint64_t>>();
+    ElemTest<Char, Config<DEGREE>::Elem>();
+    ElemTest<Char, Config<DEGREE-ERRORS>::Elem>();
     Vector<DEGREE> gen;
     if (argc < 2 || (strlen(argv[1]) != DEGREE && strlen(argv[1]) != 0)) {
         fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
