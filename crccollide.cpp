@@ -14,11 +14,12 @@
 #include <atomic>
 #include <condition_variable>
 #include <set>
+#include <x86intrin.h>
 
 #include "tinyformat.h"
 
-#define DEGREE 12
-#define LENGTH 64
+#define DEGREE 13
+#define LENGTH 120
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 1
@@ -60,6 +61,21 @@ struct MulTable {
 };
 
 static const MulTable multable;
+
+static inline uint64_t reduce2(uint64_t x) {
+    uint64_t high = (x & 0x180C06030180C060ULL) >> 5;
+    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
+    return low ^ high ^ (high << 3);
+}
+
+static inline uint64_t reduce4(uint64_t x) {
+    uint64_t high1 = (x & 0x180C06030180C060ULL) >> 5;
+    uint64_t high2 = (x & 0x6030180C06030180ULL) >> 7;
+    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
+    uint64_t tmp = high1 ^ high2;
+    return low ^ tmp ^ (tmp << 3) ^ (high2 << 2);
+}
+
 
 struct Char {
     static constexpr int Count = 1;
@@ -112,19 +128,37 @@ struct Pack {
     }
 };
 
-static inline uint64_t reduce2(uint64_t x) {
-    uint64_t high = (x & 0x180C06030180C060ULL) >> 5;
-    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
-    return low ^ high ^ (high << 3);
-}
+template<typename T, int N>
+struct PackX {
+    static constexpr int Count = N;
+    static_assert(std::is_unsigned<T>::value, "T must be unsigned");
+    static_assert(std::numeric_limits<T>::max() >> (5 * N - 1), "T not large enough");
+    static_assert(N <= 7, "N is too large");
 
-static inline uint64_t reduce4(uint64_t x) {
-    uint64_t high1 = (x & 0x180C06030180C060ULL) >> 5;
-    uint64_t high2 = (x & 0x6030180C06030180ULL) >> 7;
-    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
-    uint64_t tmp = high1 ^ high2;
-    return low ^ tmp ^ (tmp << 3) ^ (high2 << 2);
-}
+    T v;
+    PackX() : v(0) {}
+    void Set(int pos, uint8_t val) {
+        v = (v & ~(((T)31) << (5 * pos))) | (((T)val) << (5 * pos));
+    }
+
+    uint8_t Get(int pos) const {
+        return (v >> (5 * pos)) & 31;
+    }
+
+    bool IsZero() const { return v == 0; }
+    bool IsZero(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 0; }
+    bool IsOne(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 1; }
+    int Cmp(PackX x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
+    void Xor(PackX x) { v ^= x.v; }
+
+    void SubMul(PackX x, const uint8_t val) {
+        constexpr uint64_t mask = 0x7C3E1F0F87C3E1FUL;
+        __m128i xv = _mm_set_epi64x(0, _pdep_u64(x.v, mask));
+        __m128i vv = _mm_set_epi64x(0, val);
+        __m128i rv = _mm_clmulepi64_si128(xv, vv, 0);
+        v ^= _pext_u64(reduce4(_mm_extract_epi64(rv, 0)), mask);
+    }
+};
 
 template<typename I, int N>
 struct BitsX {
@@ -153,16 +187,24 @@ struct BitsX {
     void Xor(BitsX x) { v ^= x.v; }
 
     void SubMul(BitsX x, uint8_t val) {
-        v ^= reduce4(((val & 1) ? x.v : 0) ^ ((val & 2) ? (x.v << 1) : 0) ^ ((val & 4) ? (x.v << 2) : 0) ^ ((val & 8) ? (x.v << 3) : 0) ^ ((val & 16) ? (x.v << 4) : 0));
+        __m128i xv = _mm_set_epi64x(0, x.v);
+        __m128i vv = _mm_set_epi64x(0, val);
+        __m128i rv = _mm_clmulepi64_si128(xv, vv, 0);
+        v ^= reduce4(_mm_extract_epi64(rv, 0));
     }
 };
 
 template<int N> struct Config;
+template<> struct Config<1> { typedef Char Elem; };
+template<> struct Config<2> { typedef Char Elem; };
 template<> struct Config<3> { typedef Char Elem; };
 template<> struct Config<4> { typedef Char Elem; };
-template<> struct Config<6> { typedef BitsX<uint64_t, 6> Elem; };
+template<> struct Config<5> { typedef PackX<uint32_t, 5> Elem; };
+template<> struct Config<6> { typedef PackX<uint32_t, 6> Elem; };
 template<> struct Config<8> { typedef Char Elem; };
+template<> struct Config<9> { typedef Char Elem; };
 template<> struct Config<12> { typedef Pack<uint64_t, 12> Elem; };
+template<> struct Config<13> { typedef Pack<uint32_t, 6> Elem; };
 
 template<int N>
 class Vector {

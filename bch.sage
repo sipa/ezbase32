@@ -165,7 +165,8 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                 if not dupof:
                     for exp in expand(generator, F):
                         all_generators_exp[base32repr(exp)] = gens
-                fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
+                if not dupof:
+                    fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
         break
 
 
@@ -243,17 +244,17 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
 
-if True:
-    Q=1024
+if False:
+    Q=32
     Ns={}
-    for M in range(1,2):
+    for M in range(1,6):
       for d in (Q**M-1).divisors():
-        if d > 300 and d < 350 and d not in Ns:
+        if d > 70 and d < 4000 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,5,6,1)
+      attempt(Q,M,N,7,12,1)
 else:
-    for (E,L) in [(2,1023),(2,341),(2,93),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
-        for (DIST,DEG) in [(7,12),(6,12),(5,6),(4,6)]:
+    for (E,L) in [(2,1023),(2,341),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
+        for (DIST,DEG) in [(7,12),(6,12),(5,12)]:
             attempt_exhaust(2,5,E,L,DIST,DEG)
