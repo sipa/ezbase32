@@ -19,7 +19,7 @@
 #include "tinyformat.h"
 
 #define DEGREE 13
-#define LENGTH 120
+#define LENGTH 115
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 1
@@ -194,82 +194,106 @@ struct BitsX {
     }
 };
 
+template<typename A, typename B>
+struct Cat {
+    static constexpr int Count = A::Count + B::Count;
+    A a;
+    B b;
+    void Set(int pos, uint8_t val) {
+        if (pos < A::Count) {
+            a.Set(pos, val);
+        } else {
+            b.Set(pos - A::Count, val);
+        }
+    }
+    uint8_t Get(int pos) const {
+        if (pos < A::Count) {
+            return a.Get(pos);
+        } else {
+            return b.Get(pos - A::Count);
+        }
+    }
+    bool IsZero() const { return a.IsZero() && b.IsZero(); }
+    bool IsZero(int pos) const { if (pos < A::Count) return a.IsZero(pos); else return b.IsZero(pos - A::Count); }
+    bool IsOne(int pos) const { if (pos < A::Count) return a.IsOne(pos); else return b.IsOne(pos - A::Count); }
+    int Cmp(const Cat& x) const { int ret = a.Cmp(x.a); if (ret) return ret; return b.Cmp(x.b); }
+    void Xor(const Cat& x) { a.Xor(x.a); b.Xor(x.b); }
+    void SubMul(const Cat& x, uint8_t val) { a.SubMul(x.a, val); b.SubMul(x.b, val); }
+};
+
+template<typename A, int N>
+struct Mult {
+    static constexpr int Count = A::Count * N;
+    A a[N];
+    void Set(int pos, uint8_t val) {
+        a[pos / A::Count].Set(pos % A::Count, val);
+    }
+    uint8_t Get(int pos) const {
+        return a[pos / A::Count].Get(pos % A::Count);
+    }
+    bool IsZero() const {
+        for (int i = 0; i < N; ++i) {
+            if (!a[i].IsZero()) return false;
+        }
+        return true;
+    }
+    bool IsZero(int pos) const { return a[pos / A::Count].IsZero(pos % A::Count); }
+    bool IsOne(int pos) const { return a[pos / A::Count].IsOne(pos % A::Count); }
+    int Cmp(const Mult& x) const {
+        for (int i = 0; i < N; ++i) {
+            int ret = a[i].Cmp(x.a[i]);
+            if (ret) return ret;
+        }
+        return false;
+    }
+    void Xor(const Mult& x) {
+        for (int i = 0; i < N; ++i) {
+            a[i].Xor(x.a[i]);
+        }
+    }
+    void SubMul(const Mult& x, uint8_t val) {
+        for (int i = 0; i < N; ++i) {
+            a[i].SubMul(x.a[i], val);
+        }
+    }
+};
+
+#ifdef CONF
+template<int N> struct Config { typedef CONF Elem; };
+#else
 template<int N> struct Config;
 template<> struct Config<1> { typedef Char Elem; };
-template<> struct Config<2> { typedef Char Elem; };
-template<> struct Config<3> { typedef Char Elem; };
-template<> struct Config<4> { typedef Char Elem; };
+template<> struct Config<2> { typedef Cat<Char,Char> Elem; };
+template<> struct Config<3> { typedef Mult<Char,3> Elem; };
+template<> struct Config<4> { typedef Mult<Char,4> Elem; };
 template<> struct Config<5> { typedef PackX<uint32_t, 5> Elem; };
 template<> struct Config<6> { typedef PackX<uint32_t, 6> Elem; };
-template<> struct Config<8> { typedef Char Elem; };
-template<> struct Config<9> { typedef Char Elem; };
+template<> struct Config<8> { typedef Mult<Char,8> Elem; };
+template<> struct Config<9> { typedef Mult<Char,9> Elem; };
 template<> struct Config<12> { typedef Pack<uint64_t, 12> Elem; };
-template<> struct Config<13> { typedef Pack<uint32_t, 6> Elem; };
+template<> struct Config<13> { typedef Mult<Pack<uint16_t, 3>,5> Elem; };
+#endif
 
 template<int N>
 class Vector {
     typedef typename Config<N>::Elem Elem;
     static constexpr int Count = Elem::Count;
+    static_assert(N <= Count, "Internal data type insufficient for vector size");
 
-    static constexpr int E = (N + Count - 1) / Count;
-    Elem e[E];
+    Elem d;
 
 public:
-    uint8_t operator[](int a) const { return e[a / Count].Get(a % Count); }
-    void Set(int a, uint8_t val) { e[a / Count].Set(a % Count, val); }
+    uint8_t operator[](int a) const { return d.Get(a); }
+    void Set(int a, uint8_t val) { d.Set(a, val); }
 
-    bool IsZero() const {
-        for (int i = 0; i < E; ++i) {
-            if (!e[i].IsZero()) return false;
-        }
-        return true;
-    }
-
-    bool IsZero(int pos) const {
-        return e[pos / Count].IsZero(pos % Count);
-    }
-
-    bool IsOne(int pos) const {
-        return e[pos / Count].IsOne(pos % Count);
-    }
-
-    bool operator==(const Vector& a) const {
-        for (int i = 0; i < E; ++i) {
-            if (e[i].Cmp(a.e[i])) return false;
-        }
-        return true;
-    }
-
-    bool operator<(const Vector& a) const {
-        for (int i = 0; i < E; ++i) {
-            int c = e[i].Cmp(a.e[i]);
-            if (c < 0) return true;
-            if (c > 0) return false;
-        }
-        return false;
-    }
-
-    Vector<N>& operator+=(const Vector& a) {
-        for (int i = 0; i < E; ++i) {
-            e[i].Xor(a.e[i]);
-        }
-        return *this;
-    }
-
-    void SubMul(const Vector& a, uint8_t v) {
-        for (int i = 0; i < E; ++i) {
-            e[i].SubMul(a.e[i], v);
-        }
-    }
-
-    Vector<N>& operator*=(uint8_t a) {
-        for (int i = 0; i < E; ++i) {
-            Elem elem;
-            elem.SubMul(e[i], a);
-            e[i] = elem;
-        }
-        return *this;
-    }
+    bool IsZero() const { return d.IsZero(); }
+    bool IsZero(int pos) const { return d.IsZero(pos); }
+    bool IsOne(int pos) const { return d.IsOne(pos); }
+    bool operator==(const Vector& a) const { return d.Cmp(a.d) == 0; }
+    bool operator<(const Vector& a) const { return d.Cmp(a.d) < 0; }
+    Vector<N>& operator+=(const Vector& a) { d.Xor(a.d); return *this; }
+    void SubMul(const Vector& a, uint8_t v) { d.SubMul(a.d, v); }
+    Vector<N>& operator*=(uint8_t a) { Elem t; t.SubMul(d, a); d = t; return *this; }
 
     void PolyMulXMod(const Vector& mod) {
         auto ptr = multable.table[(*this)[N - 1]];
@@ -492,6 +516,7 @@ public:
     }
 };
 
+#ifndef BENCH
 template<int N>
 struct PartialSolution {
     Vector<N> constraints[MAX_DEFICIENCY];
@@ -923,6 +948,7 @@ void ElemTest() {
     }
 }
 
+
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
     ElemTest<Char, Config<DEGREE>::Elem>();
@@ -1014,3 +1040,32 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+#else
+int main() {
+    printf("Size: %i\n", sizeof(Vector<NUM>));
+    Matrix<NUM,NUM> mat;
+    do {
+        for (int i = 0; i < NUM; ++i) {
+            for (int j = 0; j < NUM; ++j) {
+                mat[i].Set(j, rdrand() & 0x1f);
+            }
+        }
+        Matrix<NUM,NUM> mati = mat, res;
+        if (mati.Invert(res) == NUM) break;
+    } while(true);
+    Transform<NUM,NUM> trans(mat);
+    Vector<NUM> vec;
+    for (int i = 0; i < NUM; ++i) {
+        vec.Set(i, rdrand() & 0x1f);
+    }
+    for (int i = 0; i * NUM * NUM < 1000000000; ++i) {
+        vec = trans.Apply(vec);
+    }
+    for (int i = 0; i < NUM; ++i) {
+        printf("%i ", vec[i]);
+    }
+    printf("\n");
+    return 0;
+}
+
+#endif
