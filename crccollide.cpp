@@ -19,7 +19,7 @@
 #include "tinyformat.h"
 
 #define DEGREE 13
-#define LENGTH 115
+#define LENGTH 105
 #define ERRORS 4
 #define MAX_DEFICIENCY 2
 #define THREADS 1
