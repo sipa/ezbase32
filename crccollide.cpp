@@ -271,7 +271,7 @@ template<> struct Config<6> { typedef PackX<uint32_t, 6> Elem; };
 template<> struct Config<8> { typedef Mult<Char,8> Elem; };
 template<> struct Config<9> { typedef Mult<Char,9> Elem; };
 template<> struct Config<12> { typedef Pack<uint64_t, 12> Elem; };
-template<> struct Config<13> { typedef Mult<Pack<uint16_t, 3>,5> Elem; };
+template<> struct Config<13> { typedef Cat<Pack<uint64_t, 12>,Char> Elem; };
 #endif
 
 template<int N>
