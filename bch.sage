@@ -23,7 +23,15 @@ def base32repr(gen):
     genlist = gen.list()
     degree = gen.degree()
     for p in range(degree):
-        gens += CHARSET[(genlist[degree-1-p]).integer_representation()]
+        v = genlist[degree-1-p].integer_representation()
+        if v > 31:
+            gens += "["
+            while v > 0:
+                gens += CHARSET[v & 31]
+                v = (v >> 5)
+            gens += "]"
+        else:
+            gens += CHARSET[v]
     return gens
 
 def randlist(n, all):
@@ -232,10 +240,7 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
         if (i >= num):
             generator=lcm(mp[-num:])
             if (generator.degree() <= DEGREE):
-                genlist = generator.list()
-                gens = ""
-                for p in range(generator.degree()):
-                    gens += CHARSET[(genlist[generator.degree()-1-p]).integer_representation()]
+                gens = base32repr(generator)
                 print "      * GEN=%s N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (gens, N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
                 find += 1
                 if (find == max):
@@ -244,16 +249,16 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
 
-if False:
-    Q=32
+if True:
+    Q=1024
     Ns={}
-    for M in range(1,6):
+    for M in range(1,4):
       for d in (Q**M-1).divisors():
-        if d > 70 and d < 4000 and d not in Ns:
+        if d > 30 and d < 2000 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,7,12,1)
+      attempt(Q,M,N,7,6,1)
 else:
     for (E,L) in [(2,1023),(2,341),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
         for (DIST,DEG) in [(7,12),(6,12),(5,12)]:
