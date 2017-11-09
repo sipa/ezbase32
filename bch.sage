@@ -6,32 +6,38 @@ def swapgen(gen):
   var = gen.parent().gen()
   return sum(coefs[degree-i] * var^i for i in range(degree+1)) / coefs[0]
 
-def expand(gen,F):
+def expand(gen,F,Q):
+  if Q == 32:
+      R = [1,2,4,8,16]
+  elif Q == 1024:
+      R = [1,2,4,8,16,32,64,128,256,512]
   ret = []
   var = gen.parent().gen()
   tgen = swapgen(gen)
-  for m in range(1,32):
-      for pow in [1,2,4,8,16]:
+  for m in range(1,Q):
+      for pow in R:
           ret.append(gen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
           ret.append(tgen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
+  print (len(set(ret)))
   return ret
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
 
-def base32repr(gen):
+def base32repr(gen,Q):
     gens = ""
     genlist = gen.list()
     degree = gen.degree()
+    pow = 0
+    while Q > 1:
+        pow = pow + 1
+        Q >>= 5
     for p in range(degree):
         v = genlist[degree-1-p].integer_representation()
-        if v > 31:
-            gens += "["
-            while v > 0:
-                gens += CHARSET[v & 31]
-                v = (v >> 5)
-            gens += "]"
-        else:
-            gens += CHARSET[v]
+        ch = ""
+        for i in range(pow):
+            ch = CHARSET[int(v) % 32] + ch
+            v /= 32
+        gens += ch
     return gens
 
 def randlist(n, all):
@@ -111,6 +117,11 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         # Find extension field modulus (any is fine)
         E_modulus_list = [0 for i in range(M)]
         while True:
+            if M == 1:
+                E = F
+                e = f
+                E_modulus = x
+                break
             E_modulus = polyfromarray(x, [F(1)] + [F_from_int[j] for j in E_modulus_list])
             if E_modulus.is_primitive():
                 E.<e> = F.extension(E_modulus)
@@ -124,6 +135,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
 
         # Find primitive element in extension field (any is fine)
         E_prim = e
+        print(E_prim)
         E_base = e ** (((Q**M)-1) / N)
 
         # Find c values
@@ -134,7 +146,11 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
         alphan = 1
         for i in range(1,N-num):
             alphan *= alpha
-            mp.append(alphan.minpoly())
+            if M == 1:
+                minpol = x - alphan
+            else:
+                minpol = alphan.minpoly()
+            mp.append(minpol)
             if (i >= num):
                 generator=lcm(mp[-num:])
                 if (generator.degree()  == DEGREE):
@@ -156,14 +172,17 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     if root in MP_cache:
                         minpoly = MP_cache[root]
                     else:
-                        minpoly = (E_base ** root).minpoly()
+                        if M == 1:
+                            minpoly = x - (E_base ** root)
+                        else:
+                            minpoly = (E_base ** root).minpoly()
                         MP_cache[root] = minpoly
                     minpolyset.add(minpoly)
                     minpolys.append(minpoly)
                 generator = 1
                 for minpoly in minpolyset:
                     generator *= minpoly
-                gens = base32repr(generator)
+                gens = base32repr(generator,Q)
                 if gens in all_generators:
                     continue
                 dupof = None
@@ -171,8 +190,8 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     dupof = all_generators_exp[gens]
                 all_generators.add(gens)
                 if not dupof:
-                    for exp in expand(generator, F):
-                        all_generators_exp[base32repr(exp)] = gens
+                    for exp in expand(generator, F, Q):
+                        all_generators_exp[base32repr(exp,Q)] = gens
                 if not dupof:
                     fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
         break
@@ -240,7 +259,7 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
         if (i >= num):
             generator=lcm(mp[-num:])
             if (generator.degree() <= DEGREE):
-                gens = base32repr(generator)
+                gens = base32repr(generator,Q)
                 print "      * GEN=%s N=%i M=%i F=(%r) E=(%r) alpha=(%r) powers=%i..%i minpolys=%s gen=(%s)" % (gens, N, M, F.modulus(), E.modulus(), alpha, i-num+1, i, mp[-num:], generator)
                 find += 1
                 if (find == max):
@@ -248,6 +267,9 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
             else:
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
+
+attempt_exhaust(2,10,1,341,7,6)
+exit
 
 if True:
     Q=1024

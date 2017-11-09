@@ -18,11 +18,11 @@
 
 #include "tinyformat.h"
 
-#define DEGREE 13
+#define DEGREE 6
 #define LENGTH 100
-#define ERRORS 4
+#define ERRORS 3
 #define MAX_DEFICIENCY 2
-#define THREADS 1
+#define THREADS 8
 
 #define MIN_FACTOR_DEGREE 1
 
@@ -34,25 +34,31 @@ static inline uint32_t rdrand() {
     return ret;
 }
 
-static constexpr int exptable[32] = {1,2,4,8,16,9,18,13,26,29,19,15,30,21,3,6,12,24,25,27,31,23,7,14,28,17,11,22,5,10,20,1};
-static constexpr int logtable[32] = {-1,0,1,14,2,28,15,22,3,5,29,26,16,7,23,11,4,25,6,10,30,13,27,21,17,18,8,19,24,9,12,20};
-
-static constexpr uint8_t gf32_mul(uint8_t x, uint8_t y) { return (x == 0 || y == 0) ? 0 : exptable[(logtable[x] + logtable[y]) % 31]; }
-
 struct MulTable {
+    int exptable[32], logtable[32];
     uint8_t table[32][32];
     uint8_t invtable[32];
 
     MulTable() {
+        int logx = 0, expx = 1;
+        while (logx != 32) {
+            exptable[logx] = expx;
+            logtable[expx] = logx;
+            ++logx;
+            expx *= 2;
+            if (expx & 32) expx ^= (32 ^ 9);
+        }
+
         for (unsigned int i = 0; i < 32; ++i) {
             for (uint64_t j = 0; j < 32; ++j) {
-                uint8_t p = gf32_mul(i, j);
+                uint8_t p = (i == 0 || j == 0) ? 0 : exptable[(logtable[i] + logtable[j]) % 31];
                 table[i][j] = p;
                 if (p == 1) {
                     invtable[i] = j;
                 }
             }
         }
+
         for (unsigned int i = 1; i < 32; ++i) {
             assert(invtable[invtable[i]] == i);
             assert(table[i][invtable[i]] == 1);
