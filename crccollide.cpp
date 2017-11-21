@@ -18,40 +18,58 @@
 
 #include "tinyformat.h"
 
-#define DEGREE 6
-#define LENGTH 100
-#define ERRORS 3
-#define MAX_DEFICIENCY 2
-#define THREADS 8
+static constexpr int DEGREE = 12;
+static constexpr int LENGTH = 100;
+static constexpr int ERRORS = 4;
+static constexpr int MAX_DEFICIENCY = 2;
+#define THREADS 1
+static constexpr int MIN_FACTOR_DEGREE = 1;
+#define EXTENSION 1
+static constexpr int FIELD_MODULUS = 9;
 
-#define MIN_FACTOR_DEGREE 1
+static constexpr int BITS = 5 * EXTENSION;
+static constexpr uint64_t FIELD_SIZE = 1 << BITS;
+
+#if EXTENSION == 1
+typedef uint8_t field_storage_type;
+#elif EXTENSION <= 3
+typedef uint16_t field_storage_type;
+#else
+typedef uint32_t field_storage_type;
+#endif
 
 static inline uint32_t rdrand() {
     uint32_t ret;
+#ifdef NDEBUG
     unsigned char ok;
     __asm__ volatile(".byte 0x0f, 0xc7, 0xf0; setc %1" : "=a"(ret), "=q"(ok) :: "cc");
     assert(ok);
+#else
+    FILE* f = fopen("/dev/urandom", "r");
+    fread(&ret, sizeof(ret), 1, f);
+    fclose(f);
+#endif
     return ret;
 }
 
 struct MulTable {
-    int exptable[32], logtable[32];
-    uint8_t table[32][32];
-    uint8_t invtable[32];
+    field_storage_type table[FIELD_SIZE][FIELD_SIZE];
+    field_storage_type invtable[FIELD_SIZE];
 
     MulTable() {
-        int logx = 0, expx = 1;
-        while (logx != 32) {
+        int64_t exptable[FIELD_SIZE], logtable[FIELD_SIZE];
+        int64_t logx = 0, expx = 1;
+        while (logx != FIELD_SIZE) {
             exptable[logx] = expx;
             logtable[expx] = logx;
             ++logx;
             expx *= 2;
-            if (expx & 32) expx ^= (32 ^ 9);
+            if (expx & FIELD_SIZE) expx ^= (FIELD_SIZE ^ FIELD_MODULUS);
         }
 
-        for (unsigned int i = 0; i < 32; ++i) {
-            for (uint64_t j = 0; j < 32; ++j) {
-                uint8_t p = (i == 0 || j == 0) ? 0 : exptable[(logtable[i] + logtable[j]) % 31];
+        for (uint64_t i = 0; i < FIELD_SIZE; ++i) {
+            for (uint64_t j = 0; j < FIELD_SIZE; ++j) {
+                uint64_t p = (i == 0 || j == 0) ? 0 : exptable[(logtable[i] + logtable[j]) % (FIELD_SIZE - 1)];
                 table[i][j] = p;
                 if (p == 1) {
                     invtable[i] = j;
@@ -59,7 +77,7 @@ struct MulTable {
             }
         }
 
-        for (unsigned int i = 1; i < 32; ++i) {
+        for (uint64_t i = 1; i < FIELD_SIZE; ++i) {
             assert(invtable[invtable[i]] == i);
             assert(table[i][invtable[i]] == 1);
         }
@@ -68,277 +86,158 @@ struct MulTable {
 
 static const MulTable multable;
 
-static inline uint64_t reduce2(uint64_t x) {
-    uint64_t high = (x & 0x180C06030180C060ULL) >> 5;
-    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
-    return low ^ high ^ (high << 3);
-}
+class FieldElem {
+    field_storage_type val;
+public:
+    FieldElem() : val(0) {}
+    explicit FieldElem(field_storage_type val_) : val(val_) {}
 
-static inline uint64_t reduce4(uint64_t x) {
-    uint64_t high1 = (x & 0x180C06030180C060ULL) >> 5;
-    uint64_t high2 = (x & 0x6030180C06030180ULL) >> 7;
-    uint64_t low = x & 0x7C3E1F0F87C3E1FULL;
-    uint64_t tmp = high1 ^ high2;
-    return low ^ tmp ^ (tmp << 3) ^ (high2 << 2);
-}
+    bool operator==(FieldElem x) const { return val == x.val; }
+    bool operator!=(FieldElem x) const { return val != x.val; }
+    bool operator<(FieldElem x) const { return val < x.val; }
+    bool operator>(FieldElem x) const { return val > x.val; }
 
-
-struct Char {
-    static constexpr int Count = 1;
-    uint8_t v;
-
-    Char() : v(0) {}
-
-    void Set(int pos, uint8_t val) {
-        v = val;
-    }
-
-    uint8_t Get(int pos) const { return v; }
-    bool IsZero() const { return v == 0; }
-    bool IsZero(int pos) const { return v == 0; }
-    bool IsOne(int pos) const { return v == 1; }
-    int Cmp(Char x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
-    void Xor(Char x) { v ^= x.v; }
-
-    void SubMul(Char x, const uint8_t val) {
-        v ^= multable.table[val][x.v];
-    }
+    FieldElem operator*(FieldElem x) const { return FieldElem(multable.table[x.val][val]); }
+    FieldElem& operator*=(FieldElem x) { val = multable.table[x.val][val]; return *this; }
+    FieldElem Inverse() const { return FieldElem(multable.invtable[val]); }
+    FieldElem operator+(FieldElem x) const { return FieldElem(x.val ^ val); }
+    FieldElem operator+=(FieldElem x) { val ^= x.val; return *this; }
+    uint32_t Int() const { return val; }
+    bool IsZero() const { return val == 0; }
+    bool IsOne() const { return val == 1; }
 };
-
-template<typename T, int N>
-struct Pack {
-    static constexpr int Count = N;
-    static_assert(std::is_unsigned<T>::value, "T must be unsigned");
-    static_assert(std::numeric_limits<T>::max() >> (5 * N - 1), "T not large enough");
-
-    T v;
-    Pack() : v(0) {}
-    void Set(int pos, uint8_t val) {
-        v = (v & ~(((T)31) << (5 * pos))) | (((T)val) << (5 * pos));
-    }
-
-    uint8_t Get(int pos) const {
-        return (v >> (5 * pos)) & 31;
-    }
-
-    bool IsZero() const { return v == 0; }
-    bool IsZero(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 0; }
-    bool IsOne(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 1; }
-    int Cmp(Pack x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
-    void Xor(Pack x) { v ^= x.v; }
-
-    void SubMul(Pack x, const uint8_t val) {
-        for (int i = 0; i < Count; ++i) {
-            v ^= (((T)(multable.table[val][(x.v >> (5 * i)) & 0x1f])) << (5 * i));
-        }
-    }
-};
-
-template<typename T, int N>
-struct PackX {
-    static constexpr int Count = N;
-    static_assert(std::is_unsigned<T>::value, "T must be unsigned");
-    static_assert(std::numeric_limits<T>::max() >> (5 * N - 1), "T not large enough");
-    static_assert(N <= 7, "N is too large");
-
-    T v;
-    PackX() : v(0) {}
-    void Set(int pos, uint8_t val) {
-        v = (v & ~(((T)31) << (5 * pos))) | (((T)val) << (5 * pos));
-    }
-
-    uint8_t Get(int pos) const {
-        return (v >> (5 * pos)) & 31;
-    }
-
-    bool IsZero() const { return v == 0; }
-    bool IsZero(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 0; }
-    bool IsOne(int pos) const { return ((v >> (5 * pos)) & 0x1f) == 1; }
-    int Cmp(PackX x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
-    void Xor(PackX x) { v ^= x.v; }
-
-    void SubMul(PackX x, const uint8_t val) {
-        constexpr uint64_t mask = 0x7C3E1F0F87C3E1FUL;
-        __m128i xv = _mm_set_epi64x(0, _pdep_u64(x.v, mask));
-        __m128i vv = _mm_set_epi64x(0, val);
-        __m128i rv = _mm_clmulepi64_si128(xv, vv, 0);
-        v ^= _pext_u64(reduce4(_mm_extract_epi64(rv, 0)), mask);
-    }
-};
-
-template<typename I, int N>
-struct BitsX {
-    static constexpr int Count = N;
-    I v;
-
-    BitsX() : v(0) {
-        static_assert(std::is_unsigned<I>::value, "I must be unsigned");
-        static_assert(std::numeric_limits<I>::max() >> (9 * N - 1), "I must be large enough");
-    }
-
-    void Set(int pos, uint8_t val) {
-        v = (v & ~(((I)31) << (9 * pos))) | (((I)val) << (9 * pos));
-    }
-
-    uint8_t Get(int pos) const {
-        return (v >> (9 * pos)) & 0x1f;
-    }
-
-    bool IsZero() const { return v == 0; }
-    bool IsZero(int pos) const { return ((v >> (9 * pos)) & 0x1f) == 0; }
-    bool IsOne(int pos) const { return ((v >> (9 * pos)) & 0x1f) == 1; }
-
-    int Cmp(BitsX x) const { if (v < x.v) return -1; if (v > x.v) return 1; return 0; }
-
-    void Xor(BitsX x) { v ^= x.v; }
-
-    void SubMul(BitsX x, uint8_t val) {
-        __m128i xv = _mm_set_epi64x(0, x.v);
-        __m128i vv = _mm_set_epi64x(0, val);
-        __m128i rv = _mm_clmulepi64_si128(xv, vv, 0);
-        v ^= reduce4(_mm_extract_epi64(rv, 0));
-    }
-};
-
-template<typename A, typename B>
-struct Cat {
-    static constexpr int Count = A::Count + B::Count;
-    A a;
-    B b;
-    void Set(int pos, uint8_t val) {
-        if (pos < A::Count) {
-            a.Set(pos, val);
-        } else {
-            b.Set(pos - A::Count, val);
-        }
-    }
-    uint8_t Get(int pos) const {
-        if (pos < A::Count) {
-            return a.Get(pos);
-        } else {
-            return b.Get(pos - A::Count);
-        }
-    }
-    bool IsZero() const { return a.IsZero() && b.IsZero(); }
-    bool IsZero(int pos) const { if (pos < A::Count) return a.IsZero(pos); else return b.IsZero(pos - A::Count); }
-    bool IsOne(int pos) const { if (pos < A::Count) return a.IsOne(pos); else return b.IsOne(pos - A::Count); }
-    int Cmp(const Cat& x) const { int ret = a.Cmp(x.a); if (ret) return ret; return b.Cmp(x.b); }
-    void Xor(const Cat& x) { a.Xor(x.a); b.Xor(x.b); }
-    void SubMul(const Cat& x, uint8_t val) { a.SubMul(x.a, val); b.SubMul(x.b, val); }
-};
-
-template<typename A, int N>
-struct Mult {
-    static constexpr int Count = A::Count * N;
-    A a[N];
-    void Set(int pos, uint8_t val) {
-        a[pos / A::Count].Set(pos % A::Count, val);
-    }
-    uint8_t Get(int pos) const {
-        return a[pos / A::Count].Get(pos % A::Count);
-    }
-    bool IsZero() const {
-        for (int i = 0; i < N; ++i) {
-            if (!a[i].IsZero()) return false;
-        }
-        return true;
-    }
-    bool IsZero(int pos) const { return a[pos / A::Count].IsZero(pos % A::Count); }
-    bool IsOne(int pos) const { return a[pos / A::Count].IsOne(pos % A::Count); }
-    int Cmp(const Mult& x) const {
-        for (int i = 0; i < N; ++i) {
-            int ret = a[i].Cmp(x.a[i]);
-            if (ret) return ret;
-        }
-        return false;
-    }
-    void Xor(const Mult& x) {
-        for (int i = 0; i < N; ++i) {
-            a[i].Xor(x.a[i]);
-        }
-    }
-    void SubMul(const Mult& x, uint8_t val) {
-        for (int i = 0; i < N; ++i) {
-            a[i].SubMul(x.a[i], val);
-        }
-    }
-};
-
-#ifdef CONF
-template<int N> struct Config { typedef CONF Elem; };
-#else
-template<int N> struct Config;
-template<> struct Config<1> { typedef Char Elem; };
-template<> struct Config<2> { typedef Cat<Char,Char> Elem; };
-template<> struct Config<3> { typedef Mult<Char,3> Elem; };
-template<> struct Config<4> { typedef Mult<Char,4> Elem; };
-template<> struct Config<5> { typedef PackX<uint32_t, 5> Elem; };
-template<> struct Config<6> { typedef PackX<uint32_t, 6> Elem; };
-template<> struct Config<8> { typedef Mult<Char,8> Elem; };
-template<> struct Config<9> { typedef Mult<Char,9> Elem; };
-template<> struct Config<12> { typedef Pack<uint64_t, 12> Elem; };
-template<> struct Config<13> { typedef Cat<Pack<uint64_t, 12>,Char> Elem; };
-#endif
 
 template<int N>
 class Vector {
-    typedef typename Config<N>::Elem Elem;
-    static constexpr int Count = Elem::Count;
-    static_assert(N <= Count, "Internal data type insufficient for vector size");
-
-    Elem d;
-
+    FieldElem val[N];
 public:
-    uint8_t operator[](int a) const { return d.Get(a); }
-    void Set(int a, uint8_t val) { d.Set(a, val); }
-
-    bool IsZero() const { return d.IsZero(); }
-    bool IsZero(int pos) const { return d.IsZero(pos); }
-    bool IsOne(int pos) const { return d.IsOne(pos); }
-    bool operator==(const Vector& a) const { return d.Cmp(a.d) == 0; }
-    bool operator<(const Vector& a) const { return d.Cmp(a.d) < 0; }
-    Vector<N>& operator+=(const Vector& a) { d.Xor(a.d); return *this; }
-    void SubMul(const Vector& a, uint8_t v) { d.SubMul(a.d, v); }
-    Vector<N>& operator*=(uint8_t a) { Elem t; t.SubMul(d, a); d = t; return *this; }
-
-    void PolyMulXMod(const Vector& mod) {
-        auto ptr = multable.table[(*this)[N - 1]];
-        uint8_t over = 0;
+    Vector<N>& operator*=(FieldElem y) {
+        auto tbl = multable.table[y.Int()];
         for (int i = 0; i < N; ++i) {
-            uint8_t nover = (*this)[i];
-            Set(i, over ^ ptr[mod[i]]);
-            over = nover;
+            val[i] = FieldElem(tbl[val[i].Int()]);
+        }
+        return *this;
+    }
+
+    Vector<N>& operator+=(Vector<N> x) {
+        for (int i = 0; i < N; ++i) {
+            val[i] += x[i];
+        }
+        return *this;
+    }
+
+    void AddMul(const Vector<N>& x, FieldElem y) {
+        auto tbl = multable.table[y.Int()];
+        for (int i = 0; i < N; ++i) {
+            val[i] += FieldElem(tbl[x[i].Int()]);
         }
     }
 
-    template<int A>
-    Vector<A> Low() const {
-        static_assert(A <= N, "ow");
-        Vector<A> ret;
-        for (int i = 0; i < A; ++i) {
-            ret.Set(i, (*this)[i]);
+    bool IsZero() const {
+        for (int i = 0; i < N; ++i) {
+            if (!val[i].IsZero()) return false;
         }
-        return ret;
+        return true;
     }
 
-    template<int A>
-    Vector<A> High() const {
-        static_assert(A <= N, "ow");
-        Vector<A> ret;
-        for (int i = 0; i < A; ++i) {
-            ret.Set(i, (*this)[i + N - A]);
+    bool IsOne() const {
+        for (int i = 0; i < N; ++i) {
+            if (!val[i].IsOne()) return false;
         }
-        return ret;
+        return true;
+    }
+
+    FieldElem& operator[](int pos) { return val[pos]; }
+    const FieldElem& operator[](int pos) const { return val[pos]; }
+
+    bool operator==(const Vector& a) const {
+        for (int i = 0; i < N; ++i) {
+            if (val[i] != a.val[i]) return false;
+        }
+        return true;
+    }
+
+    bool operator!=(const Vector& a) const {
+        for (int i = 0; i < N; ++i) {
+            if (val[i] == a.val[i]) return false;
+        }
+        return true;
+    }
+
+    bool operator<(const Vector& a) const {
+        for (int i = 0; i < N; ++i) {
+            if (val[i] < a.val[i]) return true;
+            if (val[i] > a.val[i]) return false;
+        }
+        return false;
+    }
+
+    bool operator>(const Vector& a) const {
+        for (int i = 0; i < N; ++i) {
+            if (val[i] > a.val[i]) return true;
+            if (val[i] < a.val[i]) return false;
+        }
+        return false;
+    }
+
+    uint32_t Hash() const {
+        uint32_t ret = 0;
+        if (N >= 1) ret = 22937 * val[N - 1].Int();
+        if (N >= 2) ret += 17167 * val[N - 2].Int();
+        if (N >= 3) ret += 28411 * val[N - 3].Int();
+        return ret & 0x7FFF;
     }
 };
 
+FieldElem RandFieldElem() {
+    return FieldElem(rdrand() % FIELD_SIZE);
+}
+
+template<int N>
+Vector<N> RandVector() {
+    Vector<N> ret;
+    for (int i = 0; i < N; ++i) {
+        ret[i] = RandFieldElem();
+    }
+    return ret;
+}
+
+template<int N>
+Vector<N> PolyMulXMod(const Vector<N>& x, const Vector<N>& mod) {
+    Vector<N> ret;
+    for (int i = 0; i < N; ++i) {
+        ret[i] = (i ? x[i - 1] : FieldElem()) + mod[i] * x[N - 1];
+    }
+    return ret;
+}
+
 template<int A, int B>
-uint8_t Divides(const Vector<A>& a, const Vector<B>& b) {
+Vector<A> Low(const Vector<B>& x) {
+    static_assert(A <= B, "ow");
+    Vector<A> ret;
+    for (int i = 0; i < A; ++i) {
+        ret[i] = x[i];
+    }
+    return ret;
+}
+
+template<int A, int B>
+Vector<A> High(const Vector<B>& x) {
+    static_assert(A <= B, "ow");
+    Vector<A> ret;
+    for (int i = 0; i < A; ++i) {
+        ret[i] = x[i + B - A];
+    }
+    return ret;
+}
+
+template<int A, int B>
+bool Divides(const Vector<A>& a, const Vector<B>& b) {
     Vector<A> m;
-    m[0] = 1;
+    m[0] = FieldElem(1);
     for (int d = B - 1; d >= 0; --d) {
-        m.PolyMulXMod(a);
-        m[0] ^= b[d];
+        m = PolyMulXMod(m, a);
+        m[0] += b[d];
     }
     return m.IsZero();
 }
@@ -348,8 +247,8 @@ bool AnyFactor_(int pos, Vector<A>& a, const Vector<B>& b) {
     if (pos == A) {
         return Divides(a, b);
     }
-    for (int i = 0; i < 32; ++i) {
-        a[pos] = i;
+    for (uint64_t i = 0; i < FIELD_SIZE; ++i) {
+        a[pos] = FieldElem(i);
         if (AnyFactor_(pos + 1, a, b)) return true;
     }
     return false;
@@ -362,10 +261,10 @@ bool AnyFactor(const Vector<B>& b) {
 }
 
 template<int A>
-uint8_t Multiply(const Vector<A>& a, const Vector<A>& b) {
-    uint8_t ret = 0;
+FieldElem Multiply(const Vector<A>& a, const Vector<A>& b) {
+    FieldElem ret;
     for (int i = 0; i < A; ++i) {
-        ret ^= multable.table[a[i]][b[i]];
+        ret += a[i] * b[i];
     }
     return ret;
 }
@@ -375,10 +274,10 @@ Vector<A+B> Concat(const Vector<A>& a, const Vector<B>& b)
 {
     Vector<A+B> ret;
     for (int i = 0; i < A; ++i) {
-        ret.Set(i, a[i]);
+        ret[i] = a[i];
     }
     for (int i = 0; i < B; ++i) {
-        ret.Set(i + A, b[i]);
+        ret[i + A] = b[i];
     }
     return ret;
 }
@@ -395,7 +294,7 @@ public:
         static_assert(R == C, "Matrix must be square");
         for (int r = 0; r < R; ++r) {
             for (int c = 0; c < R; ++c) {
-                row[r].Set(c, r == c);
+                row[r][c] = FieldElem(r == c);
             }
         }
     }
@@ -404,7 +303,7 @@ public:
         Matrix<C,R> ret;
         for (int r = 0; r < R; ++r) {
             for (int c = 0; c < C; ++c) {
-                ret[c].Set(r, row[r][c]);
+                ret[c][r] = row[r][c];
             }
         }
         return ret;
@@ -414,12 +313,12 @@ public:
         std::swap(row[r1], row[r2]);
     }
 
-    void MulRow(int r, uint8_t v) {
+    void MulRow(int r, FieldElem v) {
         row[r] *= v;
     }
 
-    void SubMulRow(int r, int ro, uint8_t v) {
-        row[r].SubMul(row[ro], v);
+    void AddMulRow(int r, int ro, FieldElem v) {
+        row[r].AddMul(row[ro], v);
     }
 
     Matrix<R,C>& operator+=(const Matrix<R,C>& a) {
@@ -429,7 +328,7 @@ public:
         return *this;
     }
 
-    Matrix<R,C>& operator*=(uint8_t v) {
+    Matrix<R,C>& operator*=(FieldElem v) {
         for (int r = 0; r < R; ++r) {
             row[r] *= v;
         }
@@ -442,10 +341,10 @@ public:
         MakeIdentity();
         int r = 0;
         for (int c = 0; c < C; ++c) {
-            if (res[r].IsZero(c)) {
+            if (res[r][c].IsZero()) {
                 int r2 = r + 1;
                 while (r2 < R) {
-                    if (!res[r2].IsZero(c)) {
+                    if (!res[r2][c].IsZero()) {
                         res.SwapRows(r2, r);
                         SwapRows(r2, r);
                         break;
@@ -453,23 +352,23 @@ public:
                     ++r2;
                 }
                 if (r2 < R) {
-                    assert(!res[r].IsZero(c));
+                    assert(!res[r][c].IsZero());
                 } else {
-                    assert(res[r].IsZero(c));
+                    assert(res[r][c].IsZero());
                     continue;
                 }
             }
-            uint8_t i = multable.invtable[res[r][c]];
-            assert(!res[r].IsZero(c));
-            res.MulRow(r, i);
-            MulRow(r, i);
-            assert(res[r].IsOne(c));
+            FieldElem inv = res[r][c].Inverse();
+            assert(!res[r][c].IsZero());
+            res.MulRow(r, inv);
+            MulRow(r, inv);
+            assert(res[r][c].IsOne());
             for (int r2 = 0; r2 < R; ++r2) {
                 if (r2 != r) {
-                    uint8_t i = res[r2][c];
-                    res.SubMulRow(r2, r, i);
-                    SubMulRow(r2, r, i);
-                    assert(res[r2].IsZero(c));
+                    FieldElem i = res[r2][c];
+                    res.AddMulRow(r2, r, i);
+                    AddMulRow(r2, r, i);
+                    assert(res[r2][c].IsZero());
                 }
             }
             ++r;
@@ -478,13 +377,13 @@ public:
         for (int c = 0; c < C; ++c) {
             int solvepos = -1;
             for (int r = 0; r < R; ++r) {
-                if (!res[r].IsZero(c) && !res[r].IsOne(c)) {
+                if (!res[r][c].IsZero() && !res[r][c].IsOne()) {
                     solvepos = -2;
                     break;
                 }
-                if (solvepos == -1 && res[r].IsOne(c)) {
+                if (solvepos == -1 && res[r][c].IsOne()) {
                     solvepos = r;
-                } else if (solvepos != -1 && !res[r].IsZero(c)) {
+                } else if (solvepos != -1 && !res[r][c].IsZero()) {
                     solvepos = -2;
                     break;
                 }
@@ -508,7 +407,7 @@ public:
     Transform(const Matrix<R, C>& mat) {
         for (int r = 0; r < R; ++r) {
             for (int c = 0; c < C; ++c) {
-                column[c].Set(r, mat[r][c]);
+                column[c][r] = mat[r][c];
             }
         }
     }
@@ -516,13 +415,12 @@ public:
     Vector<R> Apply(const Vector<C>& in) const {
         Vector<R> out;
         for (int c = 0; c < C; ++c) {
-            out.SubMul(column[c], in[c]);
+            out.AddMul(column[c], in[c]);
         }
         return out;
     }
 };
 
-#ifndef BENCH
 template<int N>
 struct PartialSolution {
     Vector<N> constraints[MAX_DEFICIENCY];
@@ -544,12 +442,12 @@ PartialSolution<N> PartialSolve(const Matrix<N, N>& equations) {
         if (residual[r].IsZero()) {
             ret.constraints[def_num] = inverse[r];
             for (int c = 0; c < N; ++c) {
-                ret.freedom[def_num].Set(c, residual[c][r] ^ (r == c));
+                ret.freedom[def_num][c] = residual[c][r] + FieldElem(r == c);
             }
             ++def_num;
         } else {
             for (int c = 0; c < N; ++c) {
-                solutions[r].Set(c, inverse[r][c]);
+                solutions[r][c] = inverse[r][c];
             }
         }
     }
@@ -562,18 +460,18 @@ PartialSolution<N> PartialSolve(const Matrix<N, N>& equations) {
 template<int N>
 uint64_t BaseSolution(Vector<N>& base_sol, const PartialSolution<N>& partial, const Vector<N>& knowns) {
     for (int def_num = 0; def_num < partial.deficiency; ++def_num) {
-        uint8_t check = Multiply(partial.constraints[def_num], knowns);
-        if (check) return 0;
+        FieldElem check = Multiply(partial.constraints[def_num], knowns);
+        if (!check.IsZero()) return 0;
     }
     base_sol = partial.solutions.Apply(knowns);
-    return ((uint64_t)1) << (5 * partial.deficiency);
+    return ((uint64_t)1) << (BITS * partial.deficiency);
 }
 
 template<int N>
 Vector<N> ExtSolution(const Vector<N>& base_sol, const PartialSolution<N>& partial, uint64_t solnum) {
     Vector<N> ext_sol = base_sol;
     for (int def_num = 0; def_num < partial.deficiency; ++def_num) {
-        ext_sol.SubMul(partial.freedom[def_num], (solnum >> (5 * def_num)) & 0x1F);
+        ext_sol.AddMul(partial.freedom[def_num], FieldElem((solnum >> (BITS * def_num)) % FIELD_SIZE));
     }
     return ext_sol;
 }
@@ -676,7 +574,7 @@ void RecursePositions(int idx, int errors, int min, int max, std::array<int, ERR
     if (idx == errors) {
         Matrix<ERRORS,ERRORS> rr;
         for (int i = 0; i < ERRORS; ++i) {
-            rr[i] = basis[pos[i]].Low<ERRORS>();
+            rr[i] = Low<ERRORS>(basis[pos[i]]);
         }
         rr = rr.Transpose();
         psol.push_back(std::make_pair(pos, PartialSolve(rr)));
@@ -705,7 +603,7 @@ static std::string code;
 static constexpr long double total_comb() {
     long double ret = 0;
     for (int i = 1; i <= ERRORS; ++i) {
-        ret += Combination(i, LENGTH) * powl(31, i - 1);
+        ret += Combination(i, LENGTH) * powl(FIELD_SIZE - 1, i - 1);
     }
     return ret;
 }
@@ -725,7 +623,7 @@ static void ExpandSolutions(result_type& res, const extbasis_type& extbasis, con
             bool ok = true;
             for (int i = 0; i < ERRORS; ++i) {
                 consec = consec && (ps.first[i] == (i ? ps.first[i - 1] + 1 : 0));
-                if (ext_errors.IsZero(i) && !consec) {
+                if (ext_errors[i].IsZero() && !consec) {
                     ok = false;
                     break;
                 }
@@ -735,14 +633,14 @@ static void ExpandSolutions(result_type& res, const extbasis_type& extbasis, con
             // Compute the full fault and verify it
             Vector<DEGREE-ERRORS> extbigfault;
             for (int i = 0; i < ERRORS; ++i) {
-                extbigfault.SubMul(extbasis[ps.first[i]], ext_errors[i]);
+                extbigfault.AddMul(extbasis[ps.first[i]], ext_errors[i]);
             }
             Vector<DEGREE> bigfault = Concat(fault, extbigfault);
 
             if (allzerobefore) {
                 for (int i = ERRORS; i < DEGREE; ++i) {
-                    if (!bigfault.IsZero(i)) {
-                        ok = (bigfault.IsOne(i));
+                    if (!bigfault[i].IsZero()) {
+                        ok = (bigfault[i].IsOne());
                         break;
                     }
                 }
@@ -753,7 +651,7 @@ static void ExpandSolutions(result_type& res, const extbasis_type& extbasis, con
             int min_pos = LENGTH;
             int max_pos = 0;
             for (int i = 0; i < ERRORS; ++i) {
-                if (ext_errors[i]) {
+                if (!ext_errors[i].IsZero()) {
                     ++num_error;
                     min_pos = std::min(min_pos, ps.first[i]);
                     max_pos = std::max(max_pos, ps.first[i]);
@@ -764,7 +662,7 @@ static void ExpandSolutions(result_type& res, const extbasis_type& extbasis, con
             res.emplace_back(bigfault, min_pos, max_pos, num_error);
             int nn = 0;
             for (int i = 0; i < ERRORS; ++i) {
-                if (ext_errors[i]) {
+                if (!ext_errors[i].IsZero()) {
                     res.back().pos[nn] = ps.first[i];
                     ++nn;
                 }
@@ -779,7 +677,9 @@ static bool CompareResultPointer(const Result* a, const Result* b) {
 
 bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, const psol_type& psol, const extbasis_type& extbasis, int part, uint64_t hash, LockedErrCount& err) {
     if (pos == ERRORS) {
+#if THREADS > 1
         if ((hash % ((uint64_t)THREADS)) != (uint64_t)part) return true;
+#endif
         if (err.cleanup.load(std::memory_order_relaxed)) {
             return false;
         }
@@ -794,7 +694,7 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
             sres[s].reserve(res.size() / 300);
         }
         for (size_t i = 0; i < res.size(); ++i) {
-            sres[res[i].fault[DEGREE - 1] + 32 * res[i].fault[DEGREE - 2]].push_back(&res[i]);
+            sres[res[i].fault.Hash() % 1024].push_back(&res[i]);
         }
         for (int s = 0; s < 1024; ++s) {
             std::sort(sres[s].begin(), sres[s].end(), CompareResultPointer);
@@ -829,11 +729,11 @@ bool RecurseShortFaults(int pos, bool allzerobefore, Vector<ERRORS>& fault, cons
         err.Update(local_err);
         return true;
     }
-    int max = allzerobefore ? 2 : 32;
-    int rrr = allzerobefore ? 0 : (rdrand() & 0x1f);
+    int max = allzerobefore ? 2 : FIELD_SIZE;
+    FieldElem rrr = allzerobefore ? FieldElem() : RandFieldElem();
     for (int x = 0; x < max; ++x) {
-        fault.Set(pos, x ^ rrr);
-        if (!RecurseShortFaults(pos + 1, allzerobefore && fault.IsZero(pos), fault, psol, extbasis, part, hash * 9672876866715837617ULL + fault[pos], err)) {
+        fault[pos] = FieldElem(x) + rrr;
+        if (!RecurseShortFaults(pos + 1, allzerobefore && fault[pos].IsZero(), fault, psol, extbasis, part, hash * 9672876866715837617ULL + fault[pos].Int(), err)) {
             return false;
         }
     }
@@ -856,7 +756,7 @@ void show_stats(const ErrCount& results) {
         std::string line;
         line += strprintf("%s % 4i", code.c_str(), l);
         for (int e = 1; e <= ERRORS*2; ++e) {
-            line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(31.0, e - 1)) * powl(32.0, DEGREE)));
+            line += strprintf(" % 19.15f", (double)(results.count[e][l] / (Combination(e, l) * frac * powl(FIELD_SIZE - 1, e - 1)) * powl(FIELD_SIZE, DEGREE)));
         }
         line += strprintf("  # %Lg%% done\n", frac * 100.0L);
         printf("%s", line.c_str());
@@ -869,8 +769,8 @@ bool testalot(const basis_type* basis, const extbasis_type* extbasis, ErrCount* 
     RecursePositions(0, ERRORS, 0, LENGTH, pos, partials, *basis);
 
     LockedErrCount ret;
-#if THREADS > 1
     std::vector<std::thread> t;
+#if THREADS > 1
     for (int part = 0; part < THREADS - 1; ++part) {
         t.emplace_back(&run_thread, &partials, extbasis, part, &ret);
     }
@@ -895,113 +795,62 @@ bool testalot(const basis_type* basis, const extbasis_type* extbasis, ErrCount* 
     return true;
 }
 
-std::string namecode(const Vector<DEGREE>& v) {
-   std::string ret;
-   ret.resize(DEGREE);
-   for (int d = 0; d < DEGREE; ++d) {
-       ret[d] = charset[v[DEGREE - 1 - d]];
-   }
-   return ret;
-}
-
-template<typename I, typename J>
-void ElemTest() {
-    for (int ip = 0; ip < I::Count; ++ip) {
-        for (int jp = 0; jp < J::Count; ++jp) {
-            for (int x = 0; x < 32; ++x) {
-                for (int y = 0; y < 32; ++y) {
-                    for (int z = 0; z < 32; ++z) {
-                        I i1, i2;
-                        J j1, j2;
-                        i1.Set(ip, x);
-                        j1.Set(jp, x);
-                        assert(i1.IsZero() == (x == 0));
-                        assert(j1.IsZero() == (x == 0));
-                        assert(i1.IsZero(ip) == (x == 0));
-                        assert(j1.IsZero(jp) == (x == 0));
-                        assert(i1.IsOne(ip) == (x == 1));
-                        assert(j1.IsOne(jp) == (x == 1));
-                        assert(j1.Get(jp) == i1.Get(ip));
-                        i2.Set(ip, y);
-                        j2.Set(jp, y);
-                        assert(i2.IsZero() == (y == 0));
-                        assert(j2.IsZero() == (y == 0));
-                        assert(i2.IsZero(ip) == (y == 0));
-                        assert(j2.IsZero(jp) == (y == 0));
-                        assert(i2.IsOne(ip) == (y == 1));
-                        assert(j2.IsOne(jp) == (y == 1));
-                        assert(j2.Get(jp) == i2.Get(ip));
-                        i1.Xor(i2);
-                        j1.Xor(j2);
-                        assert((i1.Cmp(i2) == 0) == (j1.Cmp(j2) == 0));
-                        assert(i1.Get(ip) == j1.Get(jp));
-                        assert(i1.Get(ip) == (x ^ y));
-                        assert(i2.IsZero() == j2.IsZero());
-                        assert(i2.IsZero(ip) == j2.IsZero(jp));
-                        assert(i2.IsOne(ip) == j2.IsOne(jp));
-                        i2.SubMul(i1, z);
-                        j2.SubMul(j1, z);
-                        assert(i1.Get(ip) == j1.Get(jp));
-                        assert(i2.Get(ip) == j2.Get(jp));
-                        assert((i1.Cmp(i2)) == (j1.Cmp(j2)));
-                        assert(i2.IsZero() == j2.IsZero());
-                        assert(i2.IsZero(ip) == j2.IsZero(jp));
-                        assert(i2.IsOne(ip) == j2.IsOne(jp));
-                    }
-                }
-            }
+std::string FormatCode(const Vector<DEGREE>& v) {
+    std::string ret;
+    ret.resize(DEGREE * EXTENSION);
+    for (int d = 0; d < DEGREE; ++d) {
+        uint64_t i = v[DEGREE - 1 - d].Int();
+        for (int e = 0; e < EXTENSION; ++e) {
+            ret[d * EXTENSION + e] = charset[(i >> ((EXTENSION - e - 1) * 5)) & 0x1F];
         }
     }
+    return ret;
 }
 
+Vector<DEGREE> ParseCode(const std::string& str) {
+    Vector<DEGREE> ret;
+    if (str.size() != DEGREE * EXTENSION) {
+        throw std::runtime_error("Wrong code length");
+    }
+    for (int i = 0; i < DEGREE; ++i) {
+        uint64_t v = 0;
+        for (int e = 0; e < EXTENSION; ++e) {
+            v = v * 32;
+            const char *ptr = strchr(charset, toupper(str[e + (DEGREE - 1 - i) * EXTENSION]));
+            if (ptr == nullptr) {
+                throw std::runtime_error("Unknown character");
+            }
+            v += ptr - charset;
+        }
+        ret[i] = FieldElem(v);
+    }
+    return ret;
+}
 
 int main(int argc, char** argv) {
     setbuf(stdout, NULL);
-    ElemTest<Char, Config<DEGREE>::Elem>();
-    ElemTest<Char, Config<DEGREE-ERRORS>::Elem>();
     Vector<DEGREE> gen;
-    if (argc < 2 || (strlen(argv[1]) != DEGREE && strlen(argv[1]) != 0)) {
+    if (argc < 2) {
         fprintf(stderr, "Usage: %s GEN%i\n", argv[0], DEGREE);
         return 1;
     }
     if (strlen(argv[1]) == 0) {
         do {
-            for (int i = 0; i < DEGREE; ++i) {
-                gen.Set(i, rdrand() & 0x1f);
-            }
-            code = namecode(gen);
-            if (gen[0] == 0) { printf("%s: divisible by x\n", code.c_str()); continue; }
-#if MIN_FACTOR_DEGREE > 1
-            if (AnyFactor<1, DEGREE>(gen)) { printf("%s: degree 1 factor\n", code.c_str()); continue; }
-#endif
-#if MIN_FACTOR_DEGREE > 2
-            if (AnyFactor<2, DEGREE>(gen)) { printf("%s: degree 2 factor\n", code.c_str()); continue; }
-#endif
-#if MIN_FACTOR_DEGREE > 3
-            if (AnyFactor<3, DEGREE>(gen)) { printf("%s: degree 3 factor\n", code.c_str()); continue; }
-#endif
-#if MIN_FACTOR_DEGREE > 4
-            if (AnyFactor<4, DEGREE>(gen)) { printf("%s: degree 4 factor\n", code.c_str()); continue; }
-#endif
-#if MIN_FACTOR_DEGREE > 5
-            if (AnyFactor<5, DEGREE>(gen)) { printf("%s: degree 5 factor\n", code.c_str()); continue; }
-#endif
-#if MIN_FACTOR_DEGREE > 6
-            if (AnyFactor<6, DEGREE>(gen)) { printf("%s: degree 6 factor\n", code.c_str()); continue; }
-#endif
+            gen = RandVector<DEGREE>();
+            code = FormatCode(gen);
+            if (gen[0].IsZero()) { printf("%s: divisible by x\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 1 && AnyFactor<1, DEGREE>(gen)) { printf("%s: degree 1 factor\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 2 && AnyFactor<2, DEGREE>(gen)) { printf("%s: degree 2 factor\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 3 && AnyFactor<3, DEGREE>(gen)) { printf("%s: degree 3 factor\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 4 && AnyFactor<4, DEGREE>(gen)) { printf("%s: degree 4 factor\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 5 && AnyFactor<5, DEGREE>(gen)) { printf("%s: degree 5 factor\n", code.c_str()); continue; }
+            if (MIN_FACTOR_DEGREE > 6 && AnyFactor<6, DEGREE>(gen)) { printf("%s: degree 6 factor\n", code.c_str()); continue; }
             break;
         } while(true);
     } else {
-        for (int i = 0; i < DEGREE; ++i) {
-            const char *ptr = strchr(charset, toupper(argv[1][DEGREE - 1 - i]));
-            if (ptr == nullptr) {
-                fprintf(stderr, "Unknown character '%c'\n", argv[1][DEGREE - 1 - i]);
-                return 1;
-            }
-            gen.Set(i, ptr - charset);
-        }
+        gen = ParseCode(std::string(argv[1]));
     }
-    code = namecode(gen);
+    code = FormatCode(gen);
     printf("%s: starting\n", code.c_str());
 
     if (argc >= 3) { require_err = strtoul(argv[2], NULL, 0); }
@@ -1012,7 +861,7 @@ int main(int argc, char** argv) {
     basis.resize(LENGTH);
     extbasis.resize(LENGTH);
     Vector<DEGREE> x;
-    x.Set(0, 1);
+    x[0] = FieldElem(1);
 
     Matrix<DEGREE, DEGREE> rand;
     Transform<DEGREE, DEGREE> rand_trans;
@@ -1020,7 +869,7 @@ int main(int argc, char** argv) {
         Matrix<DEGREE, DEGREE> randi, res;
         for (int i = 0; i < DEGREE; ++i) {
             for (int j = 0; j < DEGREE; ++j) {
-                rand[i].Set(j, rdrand() & 0x1F);
+                rand[i][j] = RandFieldElem();
             }
         }
         randi = rand;
@@ -1031,10 +880,10 @@ int main(int argc, char** argv) {
     assert(LENGTH >= DEGREE);
 
     for (int i = 0; i < LENGTH; ++i) {
-        Vector<DEGREE> base = x.Low<DEGREE>();
+        Vector<DEGREE> base = Low<DEGREE>(x);
         basis[i] = rand_trans.Apply(base);
-        extbasis[i] = basis[i].High<DEGREE-ERRORS>();
-        x.PolyMulXMod(gen);
+        extbasis[i] = High<DEGREE-ERRORS>(basis[i]);
+        x = PolyMulXMod(x, gen);
     }
 
     ErrCount locs;
@@ -1046,32 +895,3 @@ int main(int argc, char** argv) {
 
     return 0;
 }
-#else
-int main() {
-    printf("Size: %i\n", sizeof(Vector<NUM>));
-    Matrix<NUM,NUM> mat;
-    do {
-        for (int i = 0; i < NUM; ++i) {
-            for (int j = 0; j < NUM; ++j) {
-                mat[i].Set(j, rdrand() & 0x1f);
-            }
-        }
-        Matrix<NUM,NUM> mati = mat, res;
-        if (mati.Invert(res) == NUM) break;
-    } while(true);
-    Transform<NUM,NUM> trans(mat);
-    Vector<NUM> vec;
-    for (int i = 0; i < NUM; ++i) {
-        vec.Set(i, rdrand() & 0x1f);
-    }
-    for (int i = 0; i * NUM * NUM < 1000000000; ++i) {
-        vec = trans.Apply(vec);
-    }
-    for (int i = 0; i < NUM; ++i) {
-        printf("%i ", vec[i]);
-    }
-    printf("\n");
-    return 0;
-}
-
-#endif
