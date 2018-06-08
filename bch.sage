@@ -268,20 +268,20 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
 
-attempt_exhaust(2,10,1,341,7,6)
-exit
+#attempt_exhaust(2,10,1,341,7,6)
+#exit
 
 if True:
-    Q=1024
+    Q=32
     Ns={}
-    for M in range(1,4):
+    for M in range(1,6):
       for d in (Q**M-1).divisors():
-        if d > 30 and d < 2000 and d not in Ns:
+        if d > 1000 and d < 1200 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,7,6,1)
+      attempt(Q,M,N,15,27,1)
 else:
-    for (E,L) in [(2,1023),(2,341),(4,1025),(4,205),(4,165),(3,1057),(3,151)]:
-        for (DIST,DEG) in [(7,12),(6,12),(5,12)]:
+    for (E,L) in [(4,1025),(2,341)]:
+        for (DIST,DEG) in [(7,12)]:
             attempt_exhaust(2,5,E,L,DIST,DEG)
