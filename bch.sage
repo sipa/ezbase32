@@ -18,7 +18,7 @@ def expand(gen,F,Q):
       for pow in R:
           ret.append(gen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
           ret.append(tgen.subs(F.fetch_int(m)*var).map_coefficients(lambda c: c^pow).monic())
-  print (len(set(ret)))
+#  print (len(set(ret)))
   return ret
 
 CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUV"
@@ -135,7 +135,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
 
         # Find primitive element in extension field (any is fine)
         E_prim = e
-        print(E_prim)
+        #print(E_prim)
         E_base = e ** (((Q**M)-1) / N)
 
         # Find c values
@@ -153,7 +153,7 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
             mp.append(minpol)
             if (i >= num):
                 generator=lcm(mp[-num:])
-                if (generator.degree()  == DEGREE):
+                if (generator.degree() <= DEGREE):
                     cs.append(i-num+1)
 
         all_generators = set()
@@ -193,7 +193,13 @@ def attempt_exhaust(B,P,M,N,DISTANCE,DEGREE):
                     for exp in expand(generator, F, Q):
                         all_generators_exp[base32repr(exp,Q)] = gens
                 if not dupof:
-                    fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
+                    if generator.degree() == DEGREE:
+                        fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r gen=(%r)%s\n" % (gens, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, generator, " DUP="+dupof if dupof else ""))
+                    elif generator.degree() + 1 == DEGREE:
+                        for j in range(1, Q):
+                            gg = generator * (x - F.fetch_int(j))
+                            gs = base32repr(gg,Q)
+                            fil.write("GEN=%s F_mod=%r E_mod=%r alphalog=%r c=%r minpolys=%r i=%i gen=(%r)\n" % (gs, polyfromarray(B, [int(cc) for cc in reversed(F_modulus.coefficients(sparse=False))]), E_modulus.coefficients(sparse=False), alphalog, c, minpolys, j, gg))
         break
 
 
@@ -268,19 +274,20 @@ def attempt(Q,M,N,DISTANCE,DEGREE,max):
                  pass
 #                print "      * POLY of degree %i" % generator.degree()
 
-#attempt_exhaust(2,10,1,341,7,6)
-#exit
+attempt_exhaust(2, 5, 3, 32767, 4, 8)
+attempt_exhaust(2, 5, 4, 33825, 4, 8)
+exit
 
 if True:
     Q=32
     Ns={}
-    for M in range(1,6):
+    for M in range(2,6):
       for d in (Q**M-1).divisors():
-        if d > 1000 and d < 1200 and d not in Ns:
+        if d > 19000 and d < 190000 and d not in Ns:
           Ns[d] = M
     for N in sorted(Ns.keys()):
       M = Ns[N]
-      attempt(Q,M,N,15,27,1)
+      attempt(Q,M,N,4,8,1)
 else:
     for (E,L) in [(4,1025),(2,341)]:
         for (DIST,DEG) in [(7,12)]:

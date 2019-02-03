@@ -18,11 +18,11 @@
 
 #include "tinyformat.h"
 
-static constexpr int DEGREE = 6;
-static constexpr int LENGTH = 200;
+static constexpr int DEGREE = 8;
+static constexpr int LENGTH = 296;
 static constexpr int ERRORS = 3;
 static constexpr int MAX_DEFICIENCY = 2;
-#define THREADS 8
+#define THREADS 1
 static constexpr int MIN_FACTOR_DEGREE = 1;
 #define EXTENSION 1
 static constexpr int FIELD_MODULUS = 9;
